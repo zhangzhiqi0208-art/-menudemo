@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Upload, Search, SearchIcon, Plus, Minus, RotateCw, Undo2, CheckCircle2, Trash2 } from "lucide-react";
+import { Search, SearchIcon, Plus, Minus, RotateCw, Undo2, CheckCircle2, Trash2 } from "lucide-react";
 
 interface UploadedImage {
   file: File;
@@ -22,11 +22,16 @@ interface ImageUploadDialogProps {
 const ImageUploadDialog = ({ open, onOpenChange, onImageSelected }: ImageUploadDialogProps) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<"store" | "gallery">("store");
+  const [step, setStep] = useState<"editor" | "review">("editor");
   const [isDragging, setIsDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const checkedMarkSrc = "/src/assets/已勾选图片.png";
+  const uncheckedMarkSrc = "/src/assets/未勾选图片.png";
+  const uploadIconSrc = "/src/assets/上传图片.png";
+  const confirmedIconSrc = "/src/assets/图片已确认.png";
 
   const handleFilesSelect = (files: FileList) => {
     const validTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -76,17 +81,30 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected }: ImageUploadD
   const goPrev = () => { if (activeIndex > 0) setActiveIndex(activeIndex - 1); };
 
   const confirmedCount = images.filter((img) => img.confirmed).length;
+  const isSingleImage = images.length === 1;
 
   const handleSubmitAll = () => {
-    const confirmed = images.filter((img) => img.confirmed);
-    if (confirmed.length > 0) onImageSelected(confirmed[0].file, confirmed[0].url);
+    if (images.length === 0) return;
+    setActiveIndex(0);
+    setStep("review");
+  };
+
+  const handleConfirmSelection = () => {
+    const selected = images[activeIndex];
+    if (!selected) return;
+    onImageSelected(selected.file, selected.url);
     setImages([]);
     setActiveIndex(0);
+    setStep("editor");
     onOpenChange(false);
   };
 
   const handleOpenChange = (open: boolean) => {
-    if (!open) { setImages([]); setActiveIndex(0); }
+    if (!open) {
+      setImages([]);
+      setActiveIndex(0);
+      setStep("editor");
+    }
     onOpenChange(open);
   };
 
@@ -103,13 +121,21 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected }: ImageUploadD
           <div className="flex gap-6">
             <button
               onClick={() => setActiveTab("store")}
-              className={`pb-2 text-sm font-medium transition-colors ${activeTab === "store" ? "border-b-2 border-foreground text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`pb-2 text-sm font-medium transition-colors ${
+                activeTab === "store"
+                  ? "border-b-2 border-foreground text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
               {t("imageUpload.storePhotos")}
             </button>
             <button
               onClick={() => setActiveTab("gallery")}
-              className={`pb-2 text-sm font-medium transition-colors ${activeTab === "gallery" ? "border-b-2 border-foreground text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`pb-2 text-sm font-medium transition-colors ${
+                activeTab === "gallery"
+                  ? "border-b-2 border-foreground text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
               {t("imageUpload.platformGallery")}
             </button>
@@ -117,7 +143,55 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected }: ImageUploadD
         </div>
 
         <div className="px-6 py-5">
-          {activeTab === "store" ? (
+          {step === "review" ? (
+            <div className="space-y-4">
+              {activeTab === "store" && (
+                <div>
+                  <Button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground font-medium px-6"
+                  >
+                    <img src={uploadIconSrc} alt="" className="h-4 w-4 mr-2" />
+                    上传图片
+                  </Button>
+                </div>
+              )}
+
+              {activeTab === "store" ? (
+                <div className="grid grid-cols-5 gap-3">
+                  {images.map((img, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveIndex(idx)}
+                      className={`relative h-24 w-full overflow-hidden rounded-lg border-2 transition-colors ${idx === activeIndex ? "border-[hsl(48,96%,53%)]" : "border-transparent"}`}
+                    >
+                      <img src={img.url} alt="" className="h-full w-full object-cover" />
+                      <img
+                        src={idx === activeIndex ? checkedMarkSrc : uncheckedMarkSrc}
+                        alt=""
+                        className="absolute right-2 top-2 h-5 w-5"
+                      />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16">
+                  <p className="text-sm text-muted-foreground">{t("imageUpload.noResults")}</p>
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
+                <Button variant="outline" onClick={() => setStep("editor")}>
+                  {t("newItem.cancel")}
+                </Button>
+                <Button
+                  onClick={handleConfirmSelection}
+                  className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground"
+                >
+                  {t("menuList.ok")}
+                </Button>
+              </div>
+            </div>
+          ) : activeTab === "store" ? (
             images.length === 0 ? (
               <div
                 onDrop={handleDrop}
@@ -126,12 +200,11 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected }: ImageUploadD
                 className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed py-16 transition-colors ${isDragging ? "border-primary bg-primary/5" : "border-border bg-muted/30"}`}
               >
                 <Button onClick={() => fileInputRef.current?.click()} className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground font-medium px-6">
-                  <Upload className="h-4 w-4 mr-2" />
-                  {t("imageUpload.uploadFromDevice")}
+                  <img src={uploadIconSrc} alt="" className="h-4 w-4 mr-2" />
+                  上传图片
                 </Button>
                 <p className="mt-3 text-xs text-muted-foreground">{t("imageUpload.dragAndDrop")}</p>
                 <p className="mt-4 text-xs text-muted-foreground text-center px-8">{t("imageUpload.imageRequirements")}</p>
-                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple className="hidden" onChange={(e) => { if (e.target.files && e.target.files.length > 0) handleFilesSelect(e.target.files); e.target.value = ""; }} />
               </div>
             ) : (
               <div className="space-y-4">
@@ -139,7 +212,11 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected }: ImageUploadD
                   {images.map((img, idx) => (
                     <div key={idx} onClick={() => setActiveIndex(idx)} className={`relative flex-shrink-0 h-16 w-16 rounded cursor-pointer overflow-hidden border-2 transition-colors ${idx === activeIndex ? "border-[hsl(48,96%,53%)]" : "border-transparent"}`}>
                       <img src={img.url} alt="" className="h-full w-full object-cover" />
-                      {img.confirmed && <div className="absolute bottom-0.5 right-0.5"><CheckCircle2 className="h-4 w-4 text-green-500 fill-green-500" /></div>}
+                      {img.confirmed && (
+                        <div className="absolute bottom-0.5 right-0.5">
+                          <img src={confirmedIconSrc} alt="" className="h-4 w-4" />
+                        </div>
+                      )}
                       {idx === activeIndex && (
                         <button onClick={(e) => { e.stopPropagation(); deleteImage(idx); }} className="absolute top-0.5 right-0.5 h-4 w-4 rounded-sm bg-foreground/60 flex items-center justify-center hover:bg-foreground/80">
                           <Trash2 className="h-2.5 w-2.5 text-background" />
@@ -166,17 +243,34 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected }: ImageUploadD
 
                     <div className="flex items-center justify-between pt-2 border-t border-border">
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-green-500 fill-green-500" />
-                        <span className="text-sm text-muted-foreground">{confirmedCount}/{images.length} {t("imageUpload.confirmed")}</span>
+                        {!isSingleImage && (
+                          <>
+                            <img src={confirmedIconSrc} alt="" className="h-4 w-4" />
+                            <span className="text-sm text-muted-foreground">{confirmedCount}/{images.length} {t("imageUpload.confirmed")}</span>
+                          </>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={goPrev} disabled={activeIndex === 0}>{t("imageUpload.previous")}</Button>
-                        <Button size="sm" onClick={() => { toggleConfirm(activeIndex); if (!currentImage.confirmed && activeIndex < images.length - 1) goNext(); }} className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground">
-                          {currentImage.confirmed ? t("imageUpload.unconfirm") : t("imageUpload.next")}
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={handleSubmitAll} disabled={confirmedCount === 0} className="border-[hsl(48,96%,53%)] text-[hsl(48,96%,40%)] hover:bg-[hsl(48,96%,95%)]">
-                          {t("imageUpload.submitAll")}
-                        </Button>
+                        {isSingleImage ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleSubmitAll}
+                            className="border-[hsl(48,96%,53%)] text-[hsl(48,96%,40%)] hover:bg-[hsl(48,96%,95%)]"
+                          >
+                            {t("newItem.submit")}
+                          </Button>
+                        ) : (
+                          <>
+                            <Button variant="outline" size="sm" onClick={goPrev} disabled={activeIndex === 0}>{t("imageUpload.previous")}</Button>
+                            <Button size="sm" onClick={() => { toggleConfirm(activeIndex); if (!currentImage.confirmed && activeIndex < images.length - 1) goNext(); }} className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground">
+                              {currentImage.confirmed ? t("imageUpload.unconfirm") : t("imageUpload.next")}
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={handleSubmitAll} disabled={confirmedCount === 0} className="border-[hsl(48,96%,53%)] text-[hsl(48,96%,40%)] hover:bg-[hsl(48,96%,95%)]">
+                              {t("imageUpload.submitAll")}
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </>
@@ -204,6 +298,19 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected }: ImageUploadD
             </div>
           )}
         </div>
+
+        {/* Always keep the hidden file input available so确认页按钮也能触发上传 */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) handleFilesSelect(e.target.files);
+            e.target.value = "";
+          }}
+        />
       </DialogContent>
     </Dialog>
   );

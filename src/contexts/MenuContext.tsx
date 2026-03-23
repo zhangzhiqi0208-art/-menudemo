@@ -133,6 +133,7 @@ interface MenuContextType {
   setCategoryItems: React.Dispatch<React.SetStateAction<Record<number, MenuItem[]>>>;
   addItem: (categoryIndex: number, item: MenuItem) => void;
   updateItem: (itemId: string, updates: Partial<MenuItem>) => void;
+  moveItemToCategory: (itemId: string, toCategoryIndex: number, updates?: Partial<MenuItem>) => void;
   getItemById: (itemId: string) => { item: MenuItem; categoryIndex: number } | null;
 }
 
@@ -170,6 +171,56 @@ export const MenuProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const moveItemToCategory = (
+    itemId: string,
+    toCategoryIndex: number,
+    updates: Partial<MenuItem> = {},
+  ) => {
+    let fromCategoryIndex: number | null = null;
+
+    setCategoryItems((prev) => {
+      const next = { ...prev };
+
+      // Find current location
+      for (const key in next) {
+        const idx = Number(key);
+        if ((next[idx] || []).some((i) => i.id === itemId)) {
+          fromCategoryIndex = idx;
+          break;
+        }
+      }
+
+      if (fromCategoryIndex === null) return prev;
+      if (fromCategoryIndex === toCategoryIndex) {
+        // Same category: just update fields.
+        next[toCategoryIndex] = (next[toCategoryIndex] || []).map((i) =>
+          i.id === itemId ? { ...i, ...updates } : i,
+        );
+        return next;
+      }
+
+      const fromItems = next[fromCategoryIndex] || [];
+      const moving = fromItems.find((i) => i.id === itemId);
+      if (!moving) return prev;
+
+      next[fromCategoryIndex] = fromItems.filter((i) => i.id !== itemId);
+      next[toCategoryIndex] = [...(next[toCategoryIndex] || []), { ...moving, ...updates }];
+
+      return next;
+    });
+
+    // Keep category counts in sync.
+    if (fromCategoryIndex !== null && fromCategoryIndex !== toCategoryIndex) {
+      setCategories((prev) =>
+        prev.map((cat, idx) => {
+          if (idx === fromCategoryIndex) return { ...cat, count: Math.max(0, cat.count - 1) };
+          if (idx === toCategoryIndex) return { ...cat, count: cat.count + 1 };
+          return cat;
+        }),
+      );
+    }
+  };
+
   const getItemById = (itemId: string): { item: MenuItem; categoryIndex: number } | null => {
     for (const key in categoryItems) {
       const found = categoryItems[key].find(i => i.id === itemId);
@@ -179,7 +230,7 @@ export const MenuProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <MenuContext.Provider value={{ categories, setCategories, categoryItems, setCategoryItems, addItem, updateItem, getItemById }}>
+    <MenuContext.Provider value={{ categories, setCategories, categoryItems, setCategoryItems, addItem, updateItem, moveItemToCategory, getItemById }}>
       {children}
     </MenuContext.Provider>
   );
