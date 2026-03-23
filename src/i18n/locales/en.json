@@ -66,12 +66,17 @@
     "noCannotBeEmpty": "No puede estar vacío",
     "pleaseSaveFirst": "Please save first.",
     "pleaseEnter": "Please enter",
-    "itemsCount": "items"
+    "itemsCount": "items",
+    "addOnRangeOptional": "Optional {{min}}-{{max}}",
+    "addOnRangeOptionalSingle": "Optional {{count}}",
+    "addOnRangeRequired": "Required {{min}}-{{max}}",
+    "addOnRangeRequiredSingle": "Required {{count}}"
   },
   "newItem": {
     "back": "Back",
     "newItem": "New Item",
     "editItem": "Edit Item",
+    "editSubItem": "Edit Sub-item",
     "basicInfo": "Basic Info",
     "modifications": "Modifications",
     "salesInfo": "Sales Info",

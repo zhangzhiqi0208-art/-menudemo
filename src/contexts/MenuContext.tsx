@@ -12,6 +12,8 @@ export interface AddOnItem {
 export interface AddOnGroup {
   name: string;
   required: boolean;
+  min?: string;
+  max?: string;
   items: AddOnItem[];
 }
 
@@ -67,7 +69,7 @@ const initialItemsByCategory: Record<number, MenuItem[]> = {
       tags: [], deliveryPrice: "R$100.00", pickupPrice: "R$80.00", stock: "900", status: true,
       addOns: [
         {
-          name: "Snack (1of3)", required: true,
+          name: "Snack (1of3)", required: true, min: "1", max: "3",
           items: [
             { name: "Chicken Pop - Sobrecoxas Empandas C", deliveryPrice: "R$40.00", pickupPrice: "R$36.00", stock: "Unlimited", status: true },
             { name: "Chicken Pop - Molho Barbec", deliveryPrice: "R$20.00", pickupPrice: "R$18.00", stock: "0", status: true, warning: "Low stock" },
@@ -75,7 +77,7 @@ const initialItemsByCategory: Record<number, MenuItem[]> = {
           ],
         },
         {
-          name: "Salad (1of3)", required: false,
+          name: "Salad (1of3)", required: false, min: "1", max: "3",
           items: [
             { name: "Vegatable Salada", deliveryPrice: "R$40.00", pickupPrice: "R$36.00", stock: "999", status: false, warning: "This dish contained prohibited words and has been removed from the platform." },
             { name: "Chesse Salada", deliveryPrice: "R$20.00", pickupPrice: "R$18.00", stock: "999", status: true },
@@ -83,7 +85,7 @@ const initialItemsByCategory: Record<number, MenuItem[]> = {
           ],
         },
         {
-          name: "Beverage (1of2)", required: false,
+          name: "Beverage (1of2)", required: false, min: "1", max: "2",
           items: [
             { name: "CocaCola", deliveryPrice: "R$6.00", pickupPrice: "R$4.00", stock: "999", status: true },
             { name: "Sprite", deliveryPrice: "R$6.00", pickupPrice: "R$4.00", stock: "999", status: true },

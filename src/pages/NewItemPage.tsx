@@ -43,6 +43,7 @@ import { useMenu } from "@/contexts/MenuContext";
 import { toast } from "@/hooks/use-toast";
 import {
   buildMenuItemPayload,
+  mapAddOnsToModifierGroups,
   mapMenuItemToFormDraft,
 } from "@/domains/dishes/model/menuItemMappers";
 
@@ -255,6 +256,12 @@ const NewItemPage = () => {
       setStockType(draft.stockType);
       setStockCount(draft.stockCount);
       setCanSoldSeparately(draft.canSoldSeparately);
+      setModifierGroups(mapAddOnsToModifierGroups(item.addOns));
+      const isImageUrl = typeof item.image === "string" && (/^(https?|blob|data):/.test(item.image) || (item.image.includes("/") && item.image.length > 4));
+      setUploadedImage(isImageUrl ? item.image : null);
+    } else {
+      setModifierGroups([]);
+      setUploadedImage(null);
     }
   }, [itemId]);
 
@@ -426,20 +433,30 @@ const NewItemPage = () => {
     if (!itemName.trim() || !selectedCategoryIdx || !deliveryPrice.trim()) return;
 
     const catIdx = Number(selectedCategoryIdx);
-    // Convert modifier groups to AddOnGroup format
+    const existingAddOns = isEdit && existingData ? existingData.item.addOns : undefined;
+    // Convert modifier groups to AddOnGroup format, preserving sub-item status when editing
     const addOns = modifierGroups
       .filter((g) => g.status === "saved")
-      .map((g) => ({
-        name: g.name,
-        required: g.required,
-        items: g.items.map((item) => ({
-          name: item.name,
-          deliveryPrice: item.price,
-          pickupPrice: item.price,
-          stock: item.maxQty === "unlimited" ? "999" : item.maxQty,
-          status: true,
-        })),
-      }));
+      .map((g) => {
+        const existingGroup = existingAddOns?.find((eg) => eg.name === g.name);
+        return {
+          name: g.name,
+          required: g.required,
+          min: g.min,
+          max: g.max,
+          items: g.items.map((modItem) => {
+            const existingSub = existingGroup?.items.find((es) => es.name === modItem.name);
+            const existingStatus = existingSub?.status ?? true;
+            return {
+              name: modItem.name,
+              deliveryPrice: modItem.price,
+              pickupPrice: modItem.price,
+              stock: modItem.maxQty === "unlimited" ? "999" : modItem.maxQty,
+              status: existingStatus,
+            };
+          }),
+        };
+      });
 
     const payload = buildMenuItemPayload({
       itemType,

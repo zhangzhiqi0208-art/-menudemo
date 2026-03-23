@@ -66,12 +66,17 @@
     "noCannotBeEmpty": "Não pode estar vazio",
     "pleaseSaveFirst": "Por favor, salve primeiro.",
     "pleaseEnter": "Por favor, insira",
-    "itemsCount": "itens"
+    "itemsCount": "itens",
+    "addOnRangeOptional": "Opcional {{min}}-{{max}}",
+    "addOnRangeOptionalSingle": "Opcional {{count}}",
+    "addOnRangeRequired": "Obrigatório {{min}}-{{max}}",
+    "addOnRangeRequiredSingle": "Obrigatório {{count}}"
   },
   "newItem": {
     "back": "Voltar",
     "newItem": "Novo Item",
     "editItem": "Editar Item",
+    "editSubItem": "Editar Sub-item",
     "basicInfo": "Informações Básicas",
     "modifications": "Modificações",
     "salesInfo": "Informações de Venda",

@@ -75,12 +75,17 @@
     "editActiveTime": "编辑活动时间",
     "cancelAvailability": "取消可用性",
     "editHoursOfSale": "编辑营业时间",
-    "editPrice": "编辑价格"
+    "editPrice": "编辑价格",
+    "addOnRangeOptional": "可选{{min}}～{{max}}个",
+    "addOnRangeOptionalSingle": "可选{{count}}个",
+    "addOnRangeRequired": "必选{{min}}～{{max}}个",
+    "addOnRangeRequiredSingle": "必选{{count}}个"
   },
   "newItem": {
     "back": "返回",
     "newItem": "新建菜品",
     "editItem": "编辑菜品",
+    "editSubItem": "编辑子项",
     "basicInfo": "基本信息",
     "modifications": "加料选项",
     "salesInfo": "销售信息",

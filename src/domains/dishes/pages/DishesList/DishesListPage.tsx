@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AdminLayout from "@/components/AdminLayout";
@@ -58,7 +58,7 @@ import {
 } from "@/components/ui/tooltip";
 import { CategorySortDialog } from "@/components/CategorySortDialog";
 import { ItemSortDialog } from "@/components/ItemSortDialog";
-import { useMenu, type MenuItem } from "@/contexts/MenuContext";
+import { useMenu, type AddOnItem, type MenuItem } from "@/contexts/MenuContext";
 
 const DishesListPage = () => {
   const navigate = useNavigate();
@@ -336,8 +336,46 @@ const DishesListPage = () => {
     }
   }, [keyword, categories, categoryItems, selectedCategory]);
 
-  const filteredItems =
+  const mainItems =
     categoryItems[selectedCategory]?.filter((item) => matchItem(item)) || [];
+
+  type DisplayRow =
+    | { type: "main"; item: MenuItem }
+    | {
+        type: "sub";
+        parentItem: MenuItem;
+        groupIdx: number;
+        subIdx: number;
+        sub: AddOnItem;
+      };
+
+  const displayRows: DisplayRow[] = useMemo(() => {
+    const rows: DisplayRow[] = [];
+    for (const item of mainItems) {
+      rows.push({ type: "main", item });
+      if (item.addOns?.length) {
+        for (let gi = 0; gi < item.addOns.length; gi++) {
+          for (let si = 0; si < item.addOns[gi].items.length; si++) {
+            const sub = item.addOns[gi].items[si];
+            if (keyword) {
+              const subMatch = sub.name.toLowerCase().includes(keyword);
+              if (!subMatch) continue;
+            }
+            rows.push({
+              type: "sub",
+              parentItem: item,
+              groupIdx: gi,
+              subIdx: si,
+              sub,
+            });
+          }
+        }
+      }
+    }
+    return rows;
+  }, [mainItems, keyword]);
+
+  const filteredItems = mainItems;
 
   const hasAnySearchResult = keyword
     ? categories.some((_, idx) => categoryHasMatch(idx))
@@ -826,8 +864,9 @@ const DishesListPage = () => {
             ) : (
               <>
                 <div className="divide-y divide-border">
-                  {filteredItems.map((item) => (
-                    <div key={item.id}>
+                  {displayRows.map((row) =>
+                    row.type === "main" ? (
+                    <div key={row.item.id}>
                       <div
                         className={`grid items-center gap-4 px-2 py-3 ${
                           batchMode
@@ -838,9 +877,9 @@ const DishesListPage = () => {
                         {batchMode && (
                           <div className="flex items-center justify-center">
                             <Checkbox
-                              checked={selectedItems.has(item.id)}
+                              checked={selectedItems.has(row.item.id)}
                               onCheckedChange={() =>
-                                toggleItemSelection(item.id)
+                                toggleItemSelection(row.item.id)
                               }
                             />
                           </div>
@@ -849,14 +888,14 @@ const DishesListPage = () => {
                           <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary text-2xl">
                             {(() => {
                               const isImageUrl =
-                                typeof item.image === "string" &&
-                                (/^(https?|blob|data):/.test(item.image) ||
-                                  (item.image.includes("/") && item.image.length > 4));
+                                typeof row.item.image === "string" &&
+                                (/^(https?|blob|data):/.test(row.item.image) ||
+                                  (row.item.image.includes("/") && row.item.image.length > 4));
                               if (isImageUrl) {
                                 return (
                                   <>
                                     <img
-                                      src={item.image}
+                                      src={row.item.image}
                                       alt=""
                                       className="h-full w-full object-cover"
                                       onError={(e) => {
@@ -875,42 +914,42 @@ const DishesListPage = () => {
                           <div className="min-w-0 flex-1">
                             <p
                               className={`text-sm font-medium cursor-pointer hover:underline truncate ${
-                                !item.status
+                                !row.item.status
                                   ? "text-muted-foreground/50"
                                   : ""
                               }`}
                               onClick={() => {
                                 if (batchMode) return;
-                                navigate(`/menu/edit/${item.id}`);
+                                navigate(`/menu/edit/${row.item.id}`);
                               }}
-                              title={item.title}
+                              title={row.item.title}
                             >
-                              {item.title || "-"}
+                              {row.item.title || "-"}
                             </p>
-                            {(item.reviewStatus ||
-                              item.marketingActivity ||
-                              item.availability ||
-                              item.notSoldIndependently) && (
+                            {(row.item.reviewStatus ||
+                              row.item.marketingActivity ||
+                              row.item.availability ||
+                              row.item.notSoldIndependently) && (
                               <div className="mt-1 flex flex-wrap gap-1.5">
-                                {item.reviewStatus === "under_review" && (
+                                {row.item.reviewStatus === "under_review" && (
                                   <span className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
                                     <Hourglass className="h-3 w-3" />
                                     {t("menuList.underReview")}
                                   </span>
                                 )}
-                                {item.marketingActivity && (
+                                {row.item.marketingActivity && (
                                   <span className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
                                     <Megaphone className="h-3 w-3" />
                                     {t("menuList.inMarketingActivities")}
                                   </span>
                                 )}
-                                {item.availability && (
+                                {row.item.availability && (
                                   <span className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
                                     <Clock className="h-3 w-3" />
-                                    {item.availability}
+                                    {row.item.availability}
                                   </span>
                                 )}
-                                {item.notSoldIndependently && (
+                                {row.item.notSoldIndependently && (
                                   <span className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
                                     <Lock className="h-3 w-3" />
                                     {t("menuList.cannotSoldIndependently")}
@@ -920,7 +959,7 @@ const DishesListPage = () => {
                             )}
                           </div>
                         </div>
-                        {editingPriceItemId === item.id ? (
+                        {editingPriceItemId === row.item.id ? (
                           <div
                             ref={priceEditContainerRef}
                             className="flex flex-col items-end"
@@ -975,24 +1014,24 @@ const DishesListPage = () => {
                         ) : (
                           <div
                             className={`text-right text-sm whitespace-nowrap ${
-                              !item.status ? "text-muted-foreground/50" : ""
+                              !row.item.status ? "text-muted-foreground/50" : ""
                             }`}
                           >
                             <PriceWithIcon
-                              price={item.deliveryPrice}
-                              onPriceClick={() => startEditPrice(item)}
+                              price={row.item.deliveryPrice}
+                              onPriceClick={() => startEditPrice(row.item)}
                               enablePriceHoverBg
                             />
                           </div>
                         )}
                         <div
                           className="flex justify-center"
-                          style={{ opacity: !item.status ? 2.5 : 1 }}
+                          style={{ opacity: !row.item.status ? 2.5 : 1 }}
                         >
                           <Switch
-                            checked={item.status}
+                            checked={row.item.status}
                             onCheckedChange={(checked) => {
-                              updateItem(item.id, { status: checked });
+                              updateItem(row.item.id, { status: checked });
                             }}
                           />
                         </div>
@@ -1001,34 +1040,68 @@ const DishesListPage = () => {
                         </button>
                       </div>
 
-                      {item.addOns &&
-                        item.addOns.length > 0 &&
-                        item.addOns.map((group, gi) => (
+                      {row.item.addOns &&
+                        row.item.addOns.length > 0 &&
+                        row.item.addOns.map((group, gi) => (
                           <div
                             key={gi}
                             className="border-t border-border bg-secondary/30"
                           >
                             <div className="grid grid-cols-[1fr_160px_70px_30px] items-center gap-4 px-2 py-2">
-                              <span className="pl-4 text-xs font-medium text-muted-foreground">
+                              <span className="text-xs font-medium text-muted-foreground">
                                 {group.name}{" "}
-                                {group.required && (
-                                  <span className="text-destructive">
-                                    ({t("menuList.required")})
-                                  </span>
-                                )}
+                                ({(() => {
+                                  const min = group.min ?? "1";
+                                  const max = group.max ?? "1";
+                                  const minNum = parseInt(min, 10) || 1;
+                                  const maxNum = parseInt(max, 10) || 1;
+                                  if (minNum === maxNum) {
+                                    return group.required
+                                      ? t("menuList.addOnRangeRequiredSingle", { count: minNum })
+                                      : t("menuList.addOnRangeOptionalSingle", { count: minNum });
+                                  }
+                                  return group.required
+                                    ? t("menuList.addOnRangeRequired", { min, max })
+                                    : t("menuList.addOnRangeOptional", { min, max });
+                                })()})
                               </span>
                             </div>
                             {group.items.map((sub, si) => (
                               <div key={si}>
-                                <div className="grid grid-cols-[1fr_160px_70px_30px] items-center gap-4 px-2 py-2">
-                                  <span className="pl-8 text-sm">
+                                <div
+                                  className={`grid grid-cols-[1fr_160px_70px_30px] items-center gap-4 px-2 py-2 ${
+                                    !sub.status ? "text-muted-foreground/50" : ""
+                                  }`}
+                                >
+                                  <span className="text-sm">
                                     {sub.name}
                                   </span>
                                   <span className="text-right text-sm whitespace-nowrap">
                                     <PriceWithIcon price={sub.deliveryPrice} />
                                   </span>
-                                  <div className="flex justify-center">
-                                    <Switch checked={sub.status} />
+                                  <div
+                                    className="flex justify-center"
+                                    style={{ opacity: !sub.status ? 2.5 : 1 }}
+                                  >
+                                    <Switch
+                                      checked={sub.status}
+                                      onCheckedChange={(checked) => {
+                                        const newAddOns = (row.item.addOns || []).map(
+                                          (g, gIdx) =>
+                                            gIdx === gi
+                                              ? {
+                                                  ...g,
+                                                  items: g.items.map((s, sIdx) =>
+                                                    sIdx === si
+                                                      ? { ...s, status: checked }
+                                                      : s,
+                                                  ),
+                                                }
+                                              : g,
+                                        );
+                                        updateItem(row.item.id, { addOns: newAddOns });
+                                      }}
+                                    />
                                   </div>
                                   <button className="rounded p-1 hover:bg-secondary">
                                     <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
@@ -1036,7 +1109,7 @@ const DishesListPage = () => {
                                 </div>
                                 {sub.warning &&
                                   sub.warning.includes("prohibited") && (
-                                    <p className="mb-1 pl-4 text-xs text-destructive">
+                                    <p className="mb-1 text-xs text-destructive">
                                       ⛔ {sub.warning}{" "}
                                       <span className="cursor-pointer text-primary-foreground underline">
                                         Go and view details ›
@@ -1048,7 +1121,74 @@ const DishesListPage = () => {
                           </div>
                         ))}
                     </div>
-                  ))}
+                  ) : (
+                    <div
+                      key={`sub-${row.parentItem.id}-${row.groupIdx}-${row.subIdx}`}
+                      className={`grid items-center gap-4 px-2 py-3 ${
+                        batchMode
+                          ? "grid-cols-[32px_1fr_160px_70px_30px]"
+                          : "grid-cols-[1fr_160px_70px_30px]"
+                      }`}
+                    >
+                      {batchMode && <div className="flex items-center justify-center" />}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary">
+                          <img src={noDishImagePlaceholder} alt="" className="h-full w-full object-cover rounded-lg border border-[#D9D9DE]" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className={`text-sm font-medium cursor-pointer hover:underline truncate ${
+                              !row.sub.status ? "text-muted-foreground/50" : ""
+                            }`}
+                            onClick={() =>
+                              navigate(
+                                `/menu/edit/sub/${row.parentItem.id}/${row.groupIdx}/${row.subIdx}`
+                              )
+                            }
+                            title={row.sub.name}
+                          >
+                            {row.sub.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {row.parentItem.title} · {row.parentItem.addOns?.[row.groupIdx]?.name}
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        className={`text-right text-sm whitespace-nowrap ${
+                          !row.sub.status ? "text-muted-foreground/50" : ""
+                        }`}
+                      >
+                        <PriceWithIcon price={row.sub.deliveryPrice} />
+                      </div>
+                      <div
+                        className="flex justify-center"
+                        style={{ opacity: !row.sub.status ? 2.5 : 1 }}
+                      >
+                        <Switch
+                          checked={row.sub.status}
+                          onCheckedChange={(checked) => {
+                            const newAddOns = (row.parentItem.addOns || []).map(
+                              (g, gIdx) =>
+                                gIdx === row.groupIdx
+                                  ? {
+                                      ...g,
+                                      items: g.items.map((s, sIdx) =>
+                                        sIdx === row.subIdx ? { ...s, status: checked } : s,
+                                      ),
+                                    }
+                                  : g,
+                            );
+                            updateItem(row.parentItem.id, { addOns: newAddOns });
+                          }}
+                        />
+                      </div>
+                      <button className="flex aspect-square items-center justify-center rounded p-1 hover:bg-secondary">
+                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </div>
+                  )
+                  )}
                 </div>
               </>
             )}

@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import MenuListPage from "@/pages/MenuListPage";
 import NewItemPage from "@/pages/NewItemPage";
+import SubItemEditPage from "@/pages/SubItemEditPage";
 import NotFound from "@/pages/NotFound";
 
 // 新的路由集中定义。目前保持与旧 App.tsx 完全一致，避免影响现有行为。
@@ -9,6 +10,7 @@ export const AppRouter = () => {
     <Routes>
       <Route path="/" element={<MenuListPage />} />
       <Route path="/menu/new" element={<NewItemPage />} />
+      <Route path="/menu/edit/sub/:parentId/:groupIdx/:subIdx" element={<SubItemEditPage />} />
       <Route path="/menu/edit/:itemId" element={<NewItemPage />} />
       <Route path="*" element={<NotFound />} />
       {/* 如需使用领域化的路由，可逐步切换到下面这些：
