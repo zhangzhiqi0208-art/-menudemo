@@ -8,10 +8,10 @@ interface AdminLayoutProps {
 
 const AdminLayout = ({ children }: AdminLayoutProps) => {
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <AppSidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar />
+    <div className="flex h-screen flex-col overflow-hidden bg-background">
+      <TopBar />
+      <div className="flex flex-1 overflow-hidden">
+        <AppSidebar />
         <main className="flex-1 overflow-auto">{children}</main>
       </div>
     </div>

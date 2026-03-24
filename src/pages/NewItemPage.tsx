@@ -6,16 +6,13 @@ import {
   ArrowLeft,
   ImagePlus,
   Plus,
-  X,
   GripVertical,
   Copy,
   Trash2,
   ChevronUp,
   ChevronDown,
   Link2,
-  Save,
   Pencil,
-  Mail,
   Info,
 } from "lucide-react";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
@@ -35,7 +32,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -45,7 +41,25 @@ import {
   buildMenuItemPayload,
   mapAddOnsToModifierGroups,
   mapMenuItemToFormDraft,
+  stripOptionGroupNameSuffix,
 } from "@/domains/dishes/model/menuItemMappers";
+import { cn } from "@/lib/utils";
+
+/** 子项「范围最大」：仅保留大于 1 的整数，否则视为无限制 */
+const normalizeSubItemRangeMax = (raw: string): string => {
+  const v = raw.trim();
+  if (!v) return "";
+  const n = parseInt(v, 10);
+  if (Number.isNaN(n) || n <= 1) return "";
+  return String(n);
+};
+
+const maxQtyToRangeMaxInput = (maxQty: string): string => {
+  if (!maxQty || maxQty === "unlimited" || maxQty === "-") return "";
+  const n = parseInt(maxQty, 10);
+  if (Number.isNaN(n) || n <= 1) return "";
+  return String(n);
+};
 
 interface SubItemRowProps {
   item: { name: string; price: string; maxQty: string };
@@ -105,7 +119,7 @@ const SubItemRow = ({
 
   return (
     <div
-      className="grid grid-cols-[24px_24px_1fr_100px_100px_60px] gap-2 items-center px-4 py-2 border-t border-border text-sm"
+      className="grid grid-cols-[24px_1fr_100px_100px_60px] gap-2 items-center px-4 py-2 border-t border-border text-sm"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       draggable
@@ -118,9 +132,6 @@ const SubItemRow = ({
           totalItems <= 1 ? "text-muted-foreground/30" : "text-muted-foreground"
         }`}
       />
-      <div className="h-6 w-6 rounded bg-muted flex items-center justify-center">
-        <Mail className="h-3 w-3 text-muted-foreground" />
-      </div>
 
       {/* Name */}
       {editingField === "name" ? (
@@ -134,7 +145,7 @@ const SubItemRow = ({
         />
       ) : (
         <span
-          className="cursor-pointer truncate rounded px-1.5 py-0.5 hover:bg-accent transition-colors"
+          className="cursor-pointer truncate rounded px-1.5 py-0.5 transition-colors hover:bg-[#F2F2F5]"
           onClick={() => startEdit("name")}
         >
           {item.name}
@@ -158,7 +169,7 @@ const SubItemRow = ({
         </div>
       ) : (
         <span
-          className="text-center cursor-pointer rounded px-1.5 py-0.5 hover:bg-accent transition-colors"
+          className="text-center cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-[#F2F2F5]"
           onClick={() => startEdit("price")}
         >
           {item.price}
@@ -176,11 +187,10 @@ const SubItemRow = ({
             onBlur={commitEdit}
             onKeyDown={handleKeyDown}
           />
-          <span className="text-[10px] text-muted-foreground">0=不限量</span>
         </div>
       ) : (
         <span
-          className="text-center cursor-pointer rounded px-1.5 py-0.5 hover:bg-accent transition-colors"
+          className="text-center cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-[#F2F2F5]"
           onClick={() => startEdit("maxQty")}
         >
           {item.maxQty}
@@ -193,10 +203,10 @@ const SubItemRow = ({
           hovered ? "opacity-100" : "opacity-0"
         }`}
       >
-        <button onClick={onEdit} className="p-1 rounded hover:bg-secondary">
+        <button onClick={onEdit} className="rounded p-1 hover:bg-[#F2F2F5]">
           <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
         </button>
-        <button onClick={onDelete} className="p-1 rounded hover:bg-secondary">
+        <button onClick={onDelete} className="rounded p-1 hover:bg-[#F2F2F5]">
           <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
         </button>
       </div>
@@ -331,6 +341,7 @@ const NewItemPage = () => {
       prev.map((g) => {
         if (g.id !== id) return g;
         if (!g.name.trim()) return { ...g, status: "error" as const };
+        if (g.items.length === 0) return { ...g, status: "error" as const };
         return { ...g, status: "saved" as const };
       }),
     );
@@ -351,11 +362,11 @@ const NewItemPage = () => {
   const [newModifierEditIdx, setNewModifierEditIdx] = useState<number | null>(null); // null = create, number = edit index
   const [newModifierName, setNewModifierName] = useState("");
   const [newModifierCategory, setNewModifierCategory] = useState("");
-  const [newModifierDeliveryEnabled, setNewModifierDeliveryEnabled] = useState(true);
   const [newModifierDeliveryPrice, setNewModifierDeliveryPrice] = useState("");
   const [newModifierStockType, setNewModifierStockType] = useState("unlimited");
   const [newModifierStockCount, setNewModifierStockCount] = useState("");
   const [newModifierMaxLimit, setNewModifierMaxLimit] = useState("");
+  const [rangeMaxFieldFocused, setRangeMaxFieldFocused] = useState(false);
   const [newModifierCanSoldSeparately, setNewModifierCanSoldSeparately] = useState("yes");
 
   const openNewModifierDialog = (groupId: string) => {
@@ -363,11 +374,11 @@ const NewItemPage = () => {
     setNewModifierEditIdx(null);
     setNewModifierName("");
     setNewModifierCategory("");
-    setNewModifierDeliveryEnabled(true);
     setNewModifierDeliveryPrice("");
     setNewModifierStockType("unlimited");
     setNewModifierStockCount("");
     setNewModifierMaxLimit("");
+    setRangeMaxFieldFocused(false);
     setNewModifierCanSoldSeparately("yes");
     setNewModifierDialogOpen(true);
   };
@@ -380,21 +391,22 @@ const NewItemPage = () => {
     setNewModifierEditIdx(idx);
     setNewModifierName(item.name);
     setNewModifierCategory("");
-    setNewModifierDeliveryEnabled(true);
     setNewModifierDeliveryPrice(item.price.replace("R$", ""));
     setNewModifierStockType(item.maxQty === "unlimited" || item.maxQty === "-" ? "unlimited" : "custom");
     setNewModifierStockCount(item.maxQty === "unlimited" || item.maxQty === "-" ? "" : item.maxQty);
-    setNewModifierMaxLimit(item.maxQty === "unlimited" || item.maxQty === "-" ? "" : item.maxQty);
+    setNewModifierMaxLimit(maxQtyToRangeMaxInput(item.maxQty));
+    setRangeMaxFieldFocused(false);
     setNewModifierCanSoldSeparately("yes");
     setNewModifierDialogOpen(true);
   };
 
   const handleNewModifierSubmit = () => {
     if (!newModifierName.trim()) return;
+    const rangeNorm = normalizeSubItemRangeMax(newModifierMaxLimit);
     const modItem: ModifierGroupItem = {
       name: newModifierName.trim(),
       price: newModifierDeliveryPrice ? `R$${newModifierDeliveryPrice}` : "R$0.00",
-      maxQty: newModifierMaxLimit || "-",
+      maxQty: rangeNorm === "" ? "unlimited" : rangeNorm,
     };
 
     if (newModifierEditIdx !== null) {
@@ -429,9 +441,11 @@ const NewItemPage = () => {
     const addOns = modifierGroups
       .filter((g) => g.status === "saved")
       .map((g) => {
-        const existingGroup = existingAddOns?.find((eg) => eg.name === g.name);
+        const existingGroup = existingAddOns?.find(
+          (eg) => stripOptionGroupNameSuffix(eg.name) === stripOptionGroupNameSuffix(g.name),
+        );
         return {
-          name: g.name,
+          name: stripOptionGroupNameSuffix(g.name),
           required: g.required,
           min: g.min,
           max: g.max,
@@ -529,13 +543,15 @@ const NewItemPage = () => {
     return () => container.removeEventListener("scroll", handleScroll);
   }, [handleScroll]);
 
+  const subItemRangeMaxReadonlyUnlimited = !rangeMaxFieldFocused && newModifierMaxLimit === "";
+
   return (
     <AdminLayout>
       <div className="min-h-full bg-white">
       {/* Sticky header */}
       <div className="sticky top-0 z-10 bg-white border-b border-border">
         <div className="px-6 pt-4 pb-0">
-          <div className="mb-3 flex items-center gap-3">
+          <div className="mb-[24px] flex items-center gap-3">
             <button onClick={() => navigate("/")} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
               <ArrowLeft className="h-4 w-4" />{t("newItem.back")}
             </button>
@@ -543,9 +559,9 @@ const NewItemPage = () => {
             <span className="text-sm font-medium">{isEdit ? t("newItem.editItem") : t("newItem.newItem")}</span>
           </div>
           <div className="flex gap-6">
-            <button onClick={() => scrollToSection("basic")} className={`pb-2 text-sm font-semibold transition-colors ${activeTab === "basic" ? "border-b-2 border-foreground text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t("newItem.basicInfo")}</button>
-            <button onClick={() => scrollToSection("modifications")} className={`pb-2 text-sm font-semibold transition-colors ${activeTab === "modifications" ? "border-b-2 border-foreground text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t("newItem.modifications")}</button>
-            <button onClick={() => scrollToSection("sales")} className={`pb-2 text-sm font-semibold transition-colors ${activeTab === "sales" ? "border-b-2 border-foreground text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t("newItem.salesInfo")}</button>
+            <button onClick={() => scrollToSection("basic")} className={`pb-2 text-[14px] font-semibold transition-colors ${activeTab === "basic" ? "border-b-2 border-foreground text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t("newItem.basicInfo")}</button>
+            <button onClick={() => scrollToSection("modifications")} className={`pb-2 text-[14px] font-semibold transition-colors ${activeTab === "modifications" ? "border-b-2 border-foreground text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t("newItem.modifications")}</button>
+            <button onClick={() => scrollToSection("sales")} className={`pb-2 text-[14px] font-semibold transition-colors ${activeTab === "sales" ? "border-b-2 border-foreground text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t("newItem.salesInfo")}</button>
           </div>
         </div>
       </div>
@@ -558,26 +574,38 @@ const NewItemPage = () => {
           {/* Item Type */}
           <div>
             <label className="mb-2 block text-sm font-medium">{t("newItem.itemType")} <span className="text-destructive">*</span></label>
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => setItemType("items")} className={`rounded-lg border-2 p-4 text-left transition-colors ${itemType === "items" ? "border-foreground" : "border-border hover:border-muted-foreground"}`}>
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold">{t("newItem.itemsType")}</span>
-                  <div className={`h-5 w-5 rounded-full border-2 ${itemType === "items" ? "border-foreground bg-foreground" : "border-border"}`}>
-                    {itemType === "items" && <div className="m-0.5 h-3 w-3 rounded-full bg-card" />}
-                  </div>
+            <RadioGroup
+              value={itemType}
+              onValueChange={(v) => setItemType(v as "items" | "combo")}
+              className="grid grid-cols-2 gap-3"
+            >
+              <div
+                role="presentation"
+                onClick={() => setItemType("items")}
+                className={`flex h-full min-h-0 cursor-pointer flex-col justify-start rounded-lg border-2 p-4 text-left transition-colors ${itemType === "items" ? "border-foreground" : "border-border hover:border-muted-foreground"}`}
+              >
+                <div className="flex w-full items-start justify-between gap-2">
+                  <Label htmlFor="item-type-items" className="min-w-0 flex-1 cursor-pointer font-normal">
+                    <span className="block text-[14px] font-semibold leading-snug">{t("newItem.itemsType")}</span>
+                    <p className="mt-1 text-left text-xs text-muted-foreground">{t("newItem.itemsDesc")}</p>
+                  </Label>
+                  <RadioGroupItem value="items" id="item-type-items" className="mt-0.5 shrink-0" />
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">{t("newItem.itemsDesc")}</p>
-              </button>
-              <button onClick={() => setItemType("combo")} className={`rounded-lg border-2 p-4 text-left transition-colors ${itemType === "combo" ? "border-foreground" : "border-border hover:border-muted-foreground"}`}>
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold">{t("newItem.comboType")}</span>
-                  <div className={`h-5 w-5 rounded-full border-2 ${itemType === "combo" ? "border-foreground bg-foreground" : "border-border"}`}>
-                    {itemType === "combo" && <div className="m-0.5 h-3 w-3 rounded-full bg-card" />}
-                  </div>
+              </div>
+              <div
+                role="presentation"
+                onClick={() => setItemType("combo")}
+                className={`flex h-full min-h-0 cursor-pointer flex-col justify-start rounded-lg border-2 p-4 text-left transition-colors ${itemType === "combo" ? "border-foreground" : "border-border hover:border-muted-foreground"}`}
+              >
+                <div className="flex w-full items-start justify-between gap-2">
+                  <Label htmlFor="item-type-combo" className="min-w-0 flex-1 cursor-pointer font-normal">
+                    <span className="block text-[14px] font-semibold leading-snug">{t("newItem.comboType")}</span>
+                    <p className="mt-1 text-left text-xs text-muted-foreground">{t("newItem.comboDesc")}</p>
+                  </Label>
+                  <RadioGroupItem value="combo" id="item-type-combo" className="mt-0.5 shrink-0" />
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">{t("newItem.comboDesc")}</p>
-              </button>
-            </div>
+              </div>
+            </RadioGroup>
           </div>
 
           {/* Item Name */}
@@ -750,17 +778,20 @@ const NewItemPage = () => {
                           isDragDisabled ? "text-muted-foreground/30 cursor-not-allowed" : "text-muted-foreground cursor-grab hover:text-foreground"
                         }`}
                       />
-                      <span className="font-semibold italic">{group.name || t("newItem.newModifier")}</span>
-                      <Badge className={`${badgeBg} text-foreground hover:opacity-90 text-xs`}>{badgeText}</Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {group.items.length} {t("newItem.modifierCount")} · {group.min}-{group.max}{" "}
-                        {t("newItem.options")}
+                      <span className="text-[14px] font-semibold">
+                        {stripOptionGroupNameSuffix(group.name) || t("newItem.newModifier")}
                       </span>
+                      <Badge
+                        className={cn(
+                          badgeBg,
+                          "rounded-[6px] border-transparent px-2.5 py-0.5 text-xs font-semibold hover:opacity-90",
+                          group.status === "saved" ? "text-white" : "text-foreground",
+                        )}
+                      >
+                        {badgeText}
+                      </Badge>
                     </div>
                     <div className="flex items-center gap-1">
-                      <button className="p-1.5 rounded hover:bg-secondary" aria-label="copy">
-                        <Copy className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                      </button>
                       <button
                         onClick={() => setDeleteGroupId(group.id)}
                         className="p-1.5 rounded hover:bg-secondary"
@@ -787,35 +818,24 @@ const NewItemPage = () => {
                   {!group.collapsed && (
                     <div className="p-4 space-y-4">
                       {/* Form fields */}
-                      <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 items-end">
+                      <div className="grid grid-cols-[1fr_auto_auto] gap-3 items-end">
                         <div>
                           <label className="mb-1 block text-xs text-muted-foreground">
-                            {t("newItem.modifierName")}
+                            {t("newItem.optionGroupName")}
                           </label>
                           <Input
-                            placeholder={t("newItem.namePlaceholder")}
+                            placeholder={t("newItem.optionGroupNamePlaceholder")}
                             value={group.name}
                             onChange={(e) => updateModifierGroup(group.id, { name: e.target.value })}
                             className={group.status === "error" && !group.name.trim() ? "border-destructive" : ""}
                           />
                           {group.status === "error" && !group.name.trim() && (
-                            <p className="mt-1 text-xs text-destructive">{t("newItem.modifierNameRequired")}</p>
+                            <p className="mt-1 text-xs text-destructive">{t("newItem.optionGroupNameRequired")}</p>
                           )}
                         </div>
 
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">
-                            {t("newItem.customModifierGroupId")}
-                          </label>
-                          <Input
-                            placeholder="自定义ID"
-                            value={group.customId}
-                            onChange={(e) => updateModifierGroup(group.id, { customId: e.target.value })}
-                          />
-                        </div>
-
-                        <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">最小</label>
+                          <label className="mb-1 block text-xs text-muted-foreground">{t("newItem.rangeMin")}</label>
                           <Input
                             className="w-16"
                             value={group.min}
@@ -834,7 +854,7 @@ const NewItemPage = () => {
                         <div className="flex items-end gap-1">
                           <span className="pb-2 text-muted-foreground">-</span>
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">最大</label>
+                          <label className="mb-1 block text-xs text-muted-foreground">{t("newItem.rangeMax")}</label>
                             <Input
                               className="w-16"
                               value={group.max}
@@ -876,9 +896,8 @@ const NewItemPage = () => {
                       </div>
 
                       {/* Items table */}
-                      <div className="rounded-lg bg-secondary/50 overflow-hidden">
-                        <div className="grid grid-cols-[24px_24px_1fr_100px_100px_60px] gap-2 items-center px-4 py-2 text-sm font-medium text-muted-foreground bg-secondary">
-                          <span />
+                      <div className="overflow-hidden rounded-lg bg-[#F7F8FA]">
+                        <div className="grid grid-cols-[24px_1fr_100px_100px_60px] gap-2 items-center bg-[#F7F8FA] px-4 py-2 text-sm font-medium text-muted-foreground">
                           <span />
                           <span>{t("newItem.itemNameCol")}</span>
                           <span className="text-center">{t("newItem.priceCol")}</span>
@@ -954,14 +973,17 @@ const NewItemPage = () => {
                         </button>
                       </div>
 
+                      {group.status === "error" && group.items.length === 0 && (
+                        <p className="mt-2 text-xs text-destructive">{t("newItem.modifierGroupPleaseAddDishes")}</p>
+                      )}
+
                       {/* Save button */}
-                      <div className="flex justify-end">
+                      <div className="mt-2 flex justify-end">
                         <Button
                           onClick={() => saveModifierGroup(group.id)}
-                          className="bg-[hsl(48,96%,53%)] text-foreground hover:bg-[hsl(48,96%,45%)] gap-1"
+                          className="h-8 w-[88px] bg-[hsl(48,96%,53%)] px-2 text-foreground hover:bg-[hsl(48,96%,45%)]"
                         >
-                          <Save className="h-4 w-4" />
-                          {t("newItem.saveChanges")}
+                          {t("newItem.save")}
                         </Button>
                       </div>
                     </div>
@@ -981,15 +1003,21 @@ const NewItemPage = () => {
                   onClick={addNewModifierGroup}
                   className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors"
                 >
-                  <Plus className="h-4 w-4" />
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+                    <Plus className="h-4 w-4" strokeWidth={2.25} />
+                  </span>
                   {t("newItem.createNewGroup")}
                 </button>
                 <button className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors">
-                  <Plus className="h-4 w-4" />
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+                    <Link2 className="h-4 w-4" strokeWidth={2.25} />
+                  </span>
                   {t("newItem.selectExistingGroup")}
                 </button>
                 <button className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors">
-                  <Plus className="h-4 w-4" />
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+                    <Copy className="h-4 w-4" strokeWidth={2.25} />
+                  </span>
                   {t("newItem.copyOtherItemGroup")}
                 </button>
               </div>
@@ -1005,7 +1033,7 @@ const NewItemPage = () => {
 
             <div className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
               <div className="mb-2">
-                <span className="text-sm font-semibold">{t("newItem.deliveryTitle")}</span>
+                <span className="text-[14px] font-semibold">{t("newItem.deliveryTitle")}</span>
               </div>
               <div className="relative">
                 <Input placeholder={t("newItem.pleaseEnter")} value={deliveryPrice} onChange={(e) => setDeliveryPrice(e.target.value)} className={submitted && !deliveryPrice.trim() ? "border-destructive focus-visible:ring-destructive" : ""} />
@@ -1053,26 +1081,37 @@ const NewItemPage = () => {
       {/* Sticky bottom action buttons */}
       <div className="sticky bottom-0 border-t border-border bg-white px-6 py-4">
         <div className="mx-auto flex max-w-2xl gap-3">
-          <Button onClick={handleSubmit} className="bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button
+            onClick={handleSubmit}
+            className="w-[88px] bg-primary text-primary-foreground hover:bg-primary/90"
+          >
             {isEdit ? t("newItem.save") : t("newItem.submit")}
           </Button>
-          <Button variant="outline" onClick={() => navigate("/")}>{t("newItem.discard")}</Button>
+          <Button variant="outline" className="w-[88px]" onClick={() => navigate("/")}>
+            {t("newItem.discard")}
+          </Button>
         </div>
       </div>
       </div>
 
       {/* New Modifier Dialog */}
-      <Dialog open={newModifierDialogOpen} onOpenChange={setNewModifierDialogOpen}>
+      <Dialog
+        open={newModifierDialogOpen}
+        onOpenChange={(open) => {
+          setNewModifierDialogOpen(open);
+          if (!open) setRangeMaxFieldFocused(false);
+        }}
+      >
         <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {newModifierEditIdx !== null ? t("newItem.editItem") : t("newItem.createSubItem")}
+              {newModifierEditIdx !== null ? t("newItem.editItem") : t("newItem.newItem")}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-5 pt-2">
             {/* Name */}
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label className="mb-1 block text-[14px] font-medium">
                 {t("newItem.modifierName")} <span className="text-[hsl(340,82%,52%)]">*</span>
               </label>
               <Input
@@ -1084,7 +1123,7 @@ const NewItemPage = () => {
 
             {/* Store-defined Category */}
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label className="mb-1 block text-[14px] font-medium">
                 {t("newItem.storeDefinedCategory")} <span className="text-[hsl(340,82%,52%)]">*</span>{" "}
                 <TooltipProvider>
                   <Tooltip>
@@ -1115,51 +1154,40 @@ const NewItemPage = () => {
 
             {/* Price */}
             <div>
-              <label className="mb-1 block text-sm font-semibold">{t("newItem.priceCol")}</label>
-              <div className="mb-3 rounded-lg bg-[hsl(210,40%,96%)] px-3 py-2 flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[hsl(210,100%,56%)] text-[10px] text-white font-bold">
-                  i
-                </span>
-                <span className="flex-1">{t("newItem.priceNote")}</span>
-                <button className="text-muted-foreground hover:text-foreground" type="button" aria-label="close">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="rounded-lg border border-border p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <span className="font-medium text-sm">{t("newItem.delivery")}</span>
-                    <p className="text-xs text-muted-foreground">{t("newItem.originalPrice")}</p>
-                  </div>
-                  <Switch checked={newModifierDeliveryEnabled} onCheckedChange={setNewModifierDeliveryEnabled} />
+              <label className="mb-1 block text-[14px] font-medium">{t("newItem.priceCol")}</label>
+              <div className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
+                <div className="mb-2">
+                  <span className="text-[14px] font-semibold">{t("newItem.deliveryTitle")}</span>
                 </div>
-                {newModifierDeliveryEnabled && (
-                  <div className="relative">
-                    <Input
-                      placeholder={t("newItem.pleaseEnter")}
-                      value={newModifierDeliveryPrice}
-                      onChange={(e) => setNewModifierDeliveryPrice(e.target.value)}
-                      className="pr-10"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                      R$
-                    </span>
-                  </div>
-                )}
+                <div className="relative">
+                  <Input
+                    placeholder={t("newItem.pleaseEnter")}
+                    value={newModifierDeliveryPrice}
+                    onChange={(e) => setNewModifierDeliveryPrice(e.target.value)}
+                    className="pr-10"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
+                    R$
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* Stocking - hidden */}
             <div className="hidden">
-              <label className="mb-1 block text-sm font-semibold">{t("newItem.stocking")}</label>
+              <label className="mb-1 block text-[14px] font-medium">{t("newItem.stocking")}</label>
               <RadioGroup value={newModifierStockType} onValueChange={setNewModifierStockType} className="flex gap-6">
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="unlimited" id="mod-stock-unlimited" />
-                  <Label htmlFor="mod-stock-unlimited">{t("newItem.unlimited")}</Label>
+                  <Label className="text-[14px] font-normal" htmlFor="mod-stock-unlimited">
+                    {t("newItem.unlimited")}
+                  </Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="custom" id="mod-stock-custom" />
-                  <Label htmlFor="mod-stock-custom">{t("newItem.custom")}</Label>
+                  <Label className="text-[14px] font-normal" htmlFor="mod-stock-custom">
+                    {t("newItem.custom")}
+                  </Label>
                 </div>
               </RadioGroup>
               {newModifierStockType === "custom" && (
@@ -1172,30 +1200,53 @@ const NewItemPage = () => {
               )}
             </div>
 
-            {/* Max Limit */}
+            {/* Range max (sub-item): default unlimited; only integers &gt; 1 */}
             <div>
-              <label className="mb-1 block text-sm font-semibold">
-                {t("newItem.maxLimit")} <span className="text-[hsl(340,82%,52%)]">*</span>
-              </label>
+              <label className="mb-1 block text-[14px] font-medium">{t("newItem.rangeMax")}</label>
               <Input
-                type="number"
-                className="w-32"
-                value={newModifierMaxLimit}
-                onChange={(e) => setNewModifierMaxLimit(e.target.value)}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                className={cn(
+                  "max-w-[200px]",
+                  subItemRangeMaxReadonlyUnlimited && "cursor-pointer text-muted-foreground",
+                )}
+                readOnly={subItemRangeMaxReadonlyUnlimited}
+                value={
+                  subItemRangeMaxReadonlyUnlimited
+                    ? t("newItem.rangeMaxUnlimited")
+                    : newModifierMaxLimit
+                }
+                placeholder={
+                  rangeMaxFieldFocused ? t("newItem.rangeMaxInputPlaceholder") : undefined
+                }
+                onFocus={() => setRangeMaxFieldFocused(true)}
+                onBlur={() => {
+                  setNewModifierMaxLimit((prev) => normalizeSubItemRangeMax(prev));
+                  setRangeMaxFieldFocused(false);
+                }}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, "");
+                  setNewModifierMaxLimit(digits);
+                }}
               />
             </div>
 
             {/* Can be sold separately */}
             <div>
-              <label className="mb-1 block text-sm font-semibold">{t("newItem.canSoldSeparately")}</label>
+              <label className="mb-1 block text-[14px] font-medium">{t("newItem.canSoldSeparately")}</label>
               <RadioGroup value={newModifierCanSoldSeparately} onValueChange={setNewModifierCanSoldSeparately} className="flex gap-6">
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="yes" id="mod-sold-yes" />
-                  <Label htmlFor="mod-sold-yes">{t("newItem.canSoldYes")}</Label>
+                  <Label className="text-[14px] font-normal" htmlFor="mod-sold-yes">
+                    {t("newItem.canSoldYes")}
+                  </Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="no" id="mod-sold-no" />
-                  <Label htmlFor="mod-sold-no">{t("newItem.canSoldNo")}</Label>
+                  <Label className="text-[14px] font-normal" htmlFor="mod-sold-no">
+                    {t("newItem.canSoldNo")}
+                  </Label>
                 </div>
               </RadioGroup>
             </div>

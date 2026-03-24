@@ -1,5 +1,21 @@
 import type { AddOnGroup, AddOnItem, MenuItem } from "@/contexts/MenuContext";
 
+/** 去掉历史数据里名称中的「（2选1）」「(3选1)」等后缀 */
+export const stripOptionGroupNameSuffix = (name: string) =>
+  name.replace(/\s*[（(]\s*\d+\s*选\s*\d+\s*[）)]\s*/g, "").trim();
+
+/** 列表展示：饮品（必选1～2），由净名称 + required + min/max 拼出 */
+export const formatAddOnGroupListLabel = (
+  group: Pick<AddOnGroup, "name" | "required" | "min" | "max">,
+  tags: { required: string; optional: string },
+) => {
+  const base = stripOptionGroupNameSuffix(group.name);
+  const min = group.min ?? "1";
+  const max = group.max ?? "1";
+  const mid = group.required ? tags.required : tags.optional;
+  return `${base}（${mid}${min}～${max}）`;
+};
+
 export type DishFormDraft = {
   itemType: "items" | "combo";
   itemName: string;
@@ -41,7 +57,7 @@ export const mapAddOnsToModifierGroups = (
   if (!addOns || addOns.length === 0) return [];
   return addOns.map((group, idx) => ({
     id: `mg-load-${idx}-${group.name}-${Date.now()}`,
-    name: group.name,
+    name: stripOptionGroupNameSuffix(group.name),
     customId: "",
     min: group.min ?? "1",
     max: group.max ?? "1",
@@ -62,7 +78,7 @@ export const mapMenuItemToFormDraft = (
   item: MenuItem,
   categoryIndex: number,
 ): DishFormDraft => ({
-  itemType: item.itemType || (item.addOns && item.addOns.length > 0 ? "combo" : "items"),
+  itemType: item.itemType ?? "items",
   itemName: item.title,
   pdvCode: item.pdvCode || "",
   description: item.description || "",

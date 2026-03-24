@@ -141,7 +141,7 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
                 <button
                   key={idx}
                   onClick={() => setActiveIndex(idx)}
-                  className={`relative h-24 w-full overflow-hidden rounded-lg border-2 transition-colors ${idx === activeIndex ? "border-[hsl(48,96%,53%)]" : "border-transparent"}`}
+                  className={`relative aspect-square w-full overflow-hidden rounded-lg border-2 transition-colors ${idx === activeIndex ? "border-[hsl(48,96%,53%)]" : "border-transparent"}`}
                 >
                   <img src={img.url} alt="" className="h-full w-full object-cover" />
                   <img

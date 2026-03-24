@@ -6,6 +6,10 @@ import emptyMenuImage from "@/assets/empty-menu.png";
 import noDishImagePlaceholder from "@/assets/无图菜品.jpg";
 import expensiveDishIcon from "@/assets/高价菜.svg";
 import affordableDishIcon from "@/assets/平价菜.svg";
+import batchActivateIcon from "@/assets/批量操作/批量-上架.svg";
+import batchRemoveIcon from "@/assets/批量操作/批量-下架.svg";
+import batchMoreIcon from "@/assets/批量操作/批量-更多.svg";
+import batchCancelIcon from "@/assets/批量操作/批量-取消.svg";
 import {
   Search,
   Plus,
@@ -22,8 +26,6 @@ import {
   Lock,
   Check,
   X,
-  ArrowUp,
-  ChevronDown,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
@@ -58,7 +60,14 @@ import {
 } from "@/components/ui/tooltip";
 import { CategorySortDialog } from "@/components/CategorySortDialog";
 import { ItemSortDialog } from "@/components/ItemSortDialog";
-import { useMenu, type AddOnItem, type MenuItem } from "@/contexts/MenuContext";
+import ImageUploadDialog from "@/components/ImageUploadDialog";
+import { useMenu, type AddOnGroup, type AddOnItem, type MenuItem } from "@/contexts/MenuContext";
+import { formatAddOnGroupListLabel } from "@/domains/dishes/model/menuItemMappers";
+
+function isItemImageUrl(image: unknown): boolean {
+  if (typeof image !== "string") return false;
+  return /^(https?|blob|data):/.test(image) || (image.includes("/") && image.length > 4);
+}
 
 const DishesListPage = () => {
   const navigate = useNavigate();
@@ -82,6 +91,10 @@ const DishesListPage = () => {
   // Batch operations (remote capability)
   const [batchMode, setBatchMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [imageDialogItemId, setImageDialogItemId] = useState<string | null>(null);
+  const [imageDialogInitialUrl, setImageDialogInitialUrl] = useState<string | null>(null);
 
   const enterBatchMode = () => {
     setBatchMode(true);
@@ -342,6 +355,12 @@ const DishesListPage = () => {
   type DisplayRow =
     | { type: "main"; item: MenuItem }
     | {
+        type: "subGroupHeader";
+        parentItem: MenuItem;
+        groupIdx: number;
+        group: AddOnGroup;
+      }
+    | {
         type: "sub";
         parentItem: MenuItem;
         groupIdx: number;
@@ -351,29 +370,40 @@ const DishesListPage = () => {
 
   const displayRows: DisplayRow[] = useMemo(() => {
     const rows: DisplayRow[] = [];
+    const snackTitles = new Set((categoryItems[4] || []).map((i) => i.title));
     for (const item of mainItems) {
       rows.push({ type: "main", item });
-      if (item.addOns?.length) {
-        for (let gi = 0; gi < item.addOns.length; gi++) {
-          for (let si = 0; si < item.addOns[gi].items.length; si++) {
-            const sub = item.addOns[gi].items[si];
-            if (keyword) {
-              const subMatch = sub.name.toLowerCase().includes(keyword);
-              if (!subMatch) continue;
-            }
+      // 无搜索词时选项组只在主行内嵌展示；有搜索词时用扁平行展示匹配的子项，避免重复
+      if (!keyword || !item.addOns?.length) continue;
+      for (let gi = 0; gi < item.addOns.length; gi++) {
+        const group = item.addOns[gi];
+        let subGroupHeaderPushed = false;
+        for (let si = 0; si < group.items.length; si++) {
+          const sub = group.items[si];
+          const subMatch = sub.name.toLowerCase().includes(keyword);
+          if (!subMatch) continue;
+          if (selectedCategory === 1 && snackTitles.has(sub.name)) continue;
+          if (!subGroupHeaderPushed) {
             rows.push({
-              type: "sub",
+              type: "subGroupHeader",
               parentItem: item,
               groupIdx: gi,
-              subIdx: si,
-              sub,
+              group,
             });
+            subGroupHeaderPushed = true;
           }
+          rows.push({
+            type: "sub",
+            parentItem: item,
+            groupIdx: gi,
+            subIdx: si,
+            sub,
+          });
         }
       }
     }
     return rows;
-  }, [mainItems, keyword]);
+  }, [mainItems, keyword, selectedCategory, categoryItems]);
 
   const filteredItems = mainItems;
 
@@ -479,7 +509,7 @@ const DishesListPage = () => {
     <AdminLayout>
       <div className="min-h-full bg-white p-6">
         <div className="mb-4 flex gap-6 border-b border-border">
-          <button className="border-b-2 border-foreground pb-2 text-sm font-semibold">
+          <button className="border-b-2 border-foreground pb-2 text-base font-semibold">
             {t("menuList.storeMenu")}
           </button>
           <button className="pb-2 text-sm text-muted-foreground hover:text-foreground">
@@ -496,13 +526,13 @@ const DishesListPage = () => {
               {t("menuList.nightBistroMenu")} (66)
             </h1>
             <span
-              className="flex items-center gap-1 rounded-full border border-border px-3 py-0.5 text-xs text-muted-foreground"
+              className="hidden flex items-center gap-1 rounded-full border border-border px-3 py-0.5 text-xs text-muted-foreground"
               style={{ backgroundColor: "#FFFADB" }}
             >
               {t("menuList.affordableCert")}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="hidden flex items-center gap-2">
             <button className="rounded-lg border border-border p-2 hover:bg-secondary">
               <Clock className="h-4 w-4 text-muted-foreground" />
             </button>
@@ -515,7 +545,7 @@ const DishesListPage = () => {
           </div>
         </div>
 
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-[16px] flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -559,99 +589,21 @@ const DishesListPage = () => {
             </Select>
           </div>
           <div className="flex items-center gap-3">
-            {batchMode ? (
-              <>
-                <span
-                  className="text-sm font-semibold"
-                  style={{ color: hasSelection ? "hsl(50, 100%, 50%)" : undefined }}
-                >
-                  {t("menuList.totalSelected")} {totalSelected}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasSelection}
-                  className="h-8 gap-1"
-                  onClick={() => {
-                    selectedItems.forEach((id) => updateItem(id, { status: true }));
-                    exitBatchMode();
-                  }}
-                >
-                  <ArrowUp className="h-3.5 w-3.5" />
-                  {t("menuList.activate")}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasSelection}
-                  className="h-8 gap-1"
-                  onClick={() => {
-                    selectedItems.forEach((id) =>
-                      updateItem(id, { status: false })
-                    );
-                    exitBatchMode();
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  {t("menuList.remove")}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!hasSelection}
-                      className="h-8 gap-1"
-                    >
-                      {t("menuList.more")}{" "}
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem>
-                      {t("menuList.editActiveTime")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem>
-                      {t("menuList.cancelAvailability")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem>
-                      {t("menuList.editHoursOfSale")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem>
-                      {t("menuList.editCategory")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem>
-                      {t("menuList.editPrice")}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <button
-                  onClick={exitBatchMode}
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                  {t("menuList.cancel")}
-                </button>
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="outline"
-                  className="h-9 gap-2"
-                  onClick={enterBatchMode}
-                >
-                  <Settings2 className="h-4 w-4" />
-                  {t("menuList.batchOperations")}
-                </Button>
-                <Button
-                  className="h-9 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
-                  onClick={() => navigate("/menu/new", { state: { fromCategory: selectedCategory } })}
-                >
-                  <Plus className="h-4 w-4" />
-                  {t("menuList.addItem")}
-                </Button>
-              </>
-            )}
+            <Button
+              variant="outline"
+              className="h-9 gap-2"
+              onClick={batchMode ? undefined : enterBatchMode}
+            >
+              <Settings2 className="h-4 w-4" />
+              {t("menuList.batchOperations")}
+            </Button>
+            <Button
+              className="h-9 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => navigate("/menu/new")}
+            >
+              <Plus className="h-4 w-4" />
+              {t("menuList.addItem")}
+            </Button>
           </div>
         </div>
 
@@ -669,8 +621,8 @@ const DishesListPage = () => {
         ) : (
         <div className="flex gap-6">
           <div className="w-56 shrink-0">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">{t("menuList.category")}</h2>
+            <div className="mb-2 flex h-[48px] items-center justify-between">
+              <h2 className="text-base font-semibold">{t("menuList.category")}</h2>
               <div className="flex gap-1">
                 <TooltipProvider delayDuration={300}>
                   <Tooltip>
@@ -794,21 +746,101 @@ const DishesListPage = () => {
           </div>
 
           <div className="flex-1 overflow-auto">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold">
-                {categories[selectedCategory].name}{" "}
-                <span className="font-normal text-muted-foreground">
-                  {getCategoryVisibleCount(selectedCategory)}{" "}
-                  {t("menuList.itemsCount")}
+            {!batchMode && (
+              <div className="mb-2 flex h-[48px] items-center justify-between">
+                <h2 className="text-base font-semibold">
+                  {categories[selectedCategory].name}{" "}
+                  <span className="font-normal text-muted-foreground">
+                    {getCategoryVisibleCount(selectedCategory)}{" "}
+                    {t("menuList.itemsCount")}
+                  </span>
+                </h2>
+                <button
+                  onClick={() => setItemSortDialogOpen(true)}
+                  className="rounded border border-border p-1 hover:bg-secondary"
+                >
+                  <List className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            )}
+
+            {batchMode && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg px-4 py-2" style={{ backgroundColor: "#F9F9F9" }}>
+                <span
+                  className="text-base font-semibold"
+                  style={{ color: hasSelection ? "hsl(50, 100%, 50%)" : undefined }}
+                >
+                  {t("menuList.totalSelected")} {totalSelected}
                 </span>
-              </h2>
-              <button
-                onClick={() => setItemSortDialogOpen(true)}
-                className="rounded border border-border p-1 hover:bg-secondary"
-              >
-                <List className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
-            </div>
+                <div className="h-4 w-px shrink-0 bg-border" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!hasSelection}
+                  className="h-8 gap-1 border-0 bg-transparent text-black shadow-none hover:bg-transparent hover:text-black enabled:[&_img]:brightness-0 enabled:[&_img]:opacity-100 disabled:text-[#8A8A91] disabled:opacity-100 disabled:hover:text-[#8A8A91] disabled:[&_img]:opacity-[0.54]"
+                  onClick={() => {
+                    selectedItems.forEach((id) => updateItem(id, { status: true }));
+                    exitBatchMode();
+                  }}
+                >
+                  <img src={batchActivateIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
+                  {t("menuList.activate")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!hasSelection}
+                  className="h-8 gap-1 border-0 bg-transparent text-black shadow-none hover:bg-transparent hover:text-black enabled:[&_img]:brightness-0 enabled:[&_img]:opacity-100 disabled:text-[#8A8A91] disabled:opacity-100 disabled:hover:text-[#8A8A91] disabled:[&_img]:opacity-[0.54]"
+                  onClick={() => {
+                    selectedItems.forEach((id) =>
+                      updateItem(id, { status: false })
+                    );
+                    exitBatchMode();
+                  }}
+                >
+                  <img src={batchRemoveIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
+                  {t("menuList.remove")}
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!hasSelection}
+                      className="h-8 gap-1 border-0 bg-transparent text-black shadow-none hover:bg-transparent hover:text-black enabled:[&_img]:brightness-0 enabled:[&_img]:opacity-100 disabled:text-[#8A8A91] disabled:opacity-100 disabled:hover:text-[#8A8A91] disabled:[&_img]:opacity-[0.54]"
+                    >
+                      <img src={batchMoreIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
+                      {t("menuList.more")}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem>
+                      {t("menuList.editActiveTime")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      {t("menuList.cancelAvailability")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      {t("menuList.editHoursOfSale")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      {t("menuList.editCategory")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      {t("menuList.editPrice")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <div className="h-4 w-px shrink-0 bg-border" />
+                <button
+                  onClick={exitBatchMode}
+                  className="flex items-center gap-1 text-sm text-black hover:text-black"
+                >
+                  <img src={batchCancelIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
+                  {t("menuList.cancelBatchOperation")}
+                </button>
+              </div>
+            )}
 
             {batchMode ? (
               <div className="grid grid-cols-[32px_1fr_160px_70px_30px] gap-4 border-b border-border px-2 pb-2 text-xs text-muted-foreground">
@@ -885,17 +917,27 @@ const DishesListPage = () => {
                           </div>
                         )}
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary text-2xl">
+                          {(() => {
+                            const hasImage = isItemImageUrl(row.item.image);
+                            return (
+                          <div
+                            className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary text-2xl cursor-pointer hover:opacity-80"
+                            onClick={() => {
+                              if (!batchMode) {
+                                setImageDialogItemId(row.item.id);
+                                setImageDialogInitialUrl(hasImage ? (row.item.image as string) : null);
+                                setImageDialogOpen(true);
+                              }
+                            }}
+                            role="button"
+                            aria-label={hasImage ? t("newItem.editImage") : t("newItem.addImage")}
+                          >
                             {(() => {
-                              const isImageUrl =
-                                typeof row.item.image === "string" &&
-                                (/^(https?|blob|data):/.test(row.item.image) ||
-                                  (row.item.image.includes("/") && row.item.image.length > 4));
-                              if (isImageUrl) {
+                              if (hasImage) {
                                 return (
                                   <>
                                     <img
-                                      src={row.item.image}
+                                      src={row.item.image as string}
                                       alt=""
                                       className="h-full w-full object-cover"
                                       onError={(e) => {
@@ -911,6 +953,8 @@ const DishesListPage = () => {
                               return <img src={noDishImagePlaceholder} alt="" className="h-full w-full object-cover rounded-lg border border-[#D9D9DE]" />;
                             })()}
                           </div>
+                            );
+                          })()}
                           <div className="min-w-0 flex-1">
                             <p
                               className={`text-sm font-medium cursor-pointer hover:underline truncate ${
@@ -1042,28 +1086,18 @@ const DishesListPage = () => {
 
                       {row.item.addOns &&
                         row.item.addOns.length > 0 &&
+                        !keyword &&
                         row.item.addOns.map((group, gi) => (
                           <div
                             key={gi}
                             className="border-t border-border bg-secondary/30"
                           >
-                            <div className="grid grid-cols-[1fr_160px_70px_30px] items-center gap-4 px-2 py-2">
-                              <span className="text-xs font-medium text-muted-foreground">
-                                {group.name}{" "}
-                                ({(() => {
-                                  const min = group.min ?? "1";
-                                  const max = group.max ?? "1";
-                                  const minNum = parseInt(min, 10) || 1;
-                                  const maxNum = parseInt(max, 10) || 1;
-                                  if (minNum === maxNum) {
-                                    return group.required
-                                      ? t("menuList.addOnRangeRequiredSingle", { count: minNum })
-                                      : t("menuList.addOnRangeOptionalSingle", { count: minNum });
-                                  }
-                                  return group.required
-                                    ? t("menuList.addOnRangeRequired", { min, max })
-                                    : t("menuList.addOnRangeOptional", { min, max });
-                                })()})
+                            <div className="px-2 py-1.5">
+                              <span className="block pl-[60px] text-sm font-medium text-muted-foreground">
+                                {formatAddOnGroupListLabel(group, {
+                                  required: t("menuList.required"),
+                                  optional: t("menuList.addOnGroupOptionalTag"),
+                                })}
                               </span>
                             </div>
                             {group.items.map((sub, si) => (
@@ -1073,7 +1107,7 @@ const DishesListPage = () => {
                                     !sub.status ? "text-muted-foreground/50" : ""
                                   }`}
                                 >
-                                  <span className="text-sm">
+                                  <span className="text-sm pl-[60px]">
                                     {sub.name}
                                   </span>
                                   <span className="text-right text-sm whitespace-nowrap">
@@ -1121,6 +1155,20 @@ const DishesListPage = () => {
                           </div>
                         ))}
                     </div>
+                  ) : row.type === "subGroupHeader" ? (
+                    <div
+                      key={`subgh-${row.parentItem.id}-${row.groupIdx}`}
+                      className={`border-t border-border bg-secondary/30 py-1.5 ${
+                        batchMode ? "pl-[92px] pr-2" : "px-2 pl-[60px]"
+                      }`}
+                    >
+                      <span className="text-sm font-medium text-muted-foreground">
+                        {formatAddOnGroupListLabel(row.group, {
+                          required: t("menuList.required"),
+                          optional: t("menuList.addOnGroupOptionalTag"),
+                        })}
+                      </span>
+                    </div>
                   ) : (
                     <div
                       key={`sub-${row.parentItem.id}-${row.groupIdx}-${row.subIdx}`}
@@ -1131,9 +1179,9 @@ const DishesListPage = () => {
                       }`}
                     >
                       {batchMode && <div className="flex items-center justify-center" />}
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary">
-                          <img src={noDishImagePlaceholder} alt="" className="h-full w-full object-cover rounded-lg border border-[#D9D9DE]" />
+                      <div className="flex items-center gap-3 min-w-0 pl-0">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center" aria-hidden>
+                          <span className="w-12" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p
@@ -1148,9 +1196,6 @@ const DishesListPage = () => {
                             title={row.sub.name}
                           >
                             {row.sub.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {row.parentItem.title} · {row.parentItem.addOns?.[row.groupIdx]?.name}
                           </p>
                         </div>
                       </div>
@@ -1312,6 +1357,24 @@ const DishesListPage = () => {
             image: i.image,
           }))}
           onSave={handleItemSortSave}
+        />
+        <ImageUploadDialog
+          open={imageDialogOpen}
+          onOpenChange={(open) => {
+            setImageDialogOpen(open);
+            if (!open) {
+              setImageDialogItemId(null);
+              setImageDialogInitialUrl(null);
+            }
+          }}
+          onImageSelected={(_file, previewUrl) => {
+            if (imageDialogItemId) {
+              updateItem(imageDialogItemId, { image: previewUrl });
+              setImageDialogItemId(null);
+              setImageDialogInitialUrl(null);
+            }
+          }}
+          initialImageUrl={imageDialogInitialUrl ?? undefined}
         />
       </div>
     </AdminLayout>

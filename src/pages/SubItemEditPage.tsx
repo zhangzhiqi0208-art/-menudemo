@@ -5,6 +5,7 @@ import AdminLayout from "@/components/AdminLayout";
 import { ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useMenu } from "@/contexts/MenuContext";
@@ -100,7 +101,7 @@ const SubItemEditPage = () => {
   return (
     <AdminLayout>
       <div className="p-6">
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-[16px] flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={() => navigate("/")}>
             <ArrowLeft className="mr-1 h-4 w-4" />
             {t("newItem.back")}
@@ -149,24 +150,16 @@ const SubItemEditPage = () => {
 
           <div>
             <Label className="mb-1 block">{t("menuList.stock")}</Label>
-            <div className="flex gap-6">
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  checked={stock === "unlimited"}
-                  onChange={() => setStock("unlimited")}
-                />
-                {t("newItem.unlimited")}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  checked={stock === "custom"}
-                  onChange={() => setStock("custom")}
-                />
-                {t("newItem.custom")}
-              </label>
-            </div>
+            <RadioGroup value={stock} onValueChange={setStock} className="flex gap-6">
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="unlimited" id="sub-stock-unlimited" />
+                <Label htmlFor="sub-stock-unlimited">{t("newItem.unlimited")}</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="custom" id="sub-stock-custom" />
+                <Label htmlFor="sub-stock-custom">{t("newItem.custom")}</Label>
+              </div>
+            </RadioGroup>
             {stock === "custom" && (
               <Input
                 type="number"
