@@ -47,8 +47,6 @@ import {
   mapMenuItemToFormDraft,
 } from "@/domains/dishes/model/menuItemMappers";
 
-const allergens = ["Diary", "Eggs", "Fish", "Diary", "Eggs", "Fish", "Diary", "Eggs", "Fish", "Diary", "Eggs", "Fish"];
-
 interface SubItemRowProps {
   item: { name: string; price: string; maxQty: string };
   idx: number;
@@ -234,8 +232,7 @@ const NewItemPage = () => {
   const [stockCount, setStockCount] = useState("");
   const [canSoldSeparately, setCanSoldSeparately] = useState("yes");
   const [containsAlcohol, setContainsAlcohol] = useState("no");
-  const [saleTimeType, setSaleTimeType] = useState("weekly");
-  const [selectedAllergens, setSelectedAllergens] = useState<number[]>([]);
+  const [saleTimeType, setSaleTimeType] = useState("allDay");
   const [submitted, setSubmitted] = useState(false);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
@@ -264,12 +261,6 @@ const NewItemPage = () => {
       setUploadedImage(null);
     }
   }, [itemId]);
-
-  const toggleAllergen = (idx: number) => {
-    setSelectedAllergens((prev) =>
-      prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
-    );
-  };
 
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [dragItem, setDragItem] = useState<{ groupId: string; idx: number } | null>(null);
@@ -540,8 +531,9 @@ const NewItemPage = () => {
 
   return (
     <AdminLayout>
+      <div className="min-h-full bg-white">
       {/* Sticky header */}
-      <div className="sticky top-0 z-10 bg-background border-b border-border">
+      <div className="sticky top-0 z-10 bg-white border-b border-border">
         <div className="px-6 pt-4 pb-0">
           <div className="mb-3 flex items-center gap-3">
             <button onClick={() => navigate("/")} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -610,18 +602,11 @@ const NewItemPage = () => {
           {/* Item Picture */}
           <div>
             <label className="mb-1 block text-sm font-medium">{t("newItem.itemPicture")}</label>
-            <p className="mb-2 text-xs text-muted-foreground">
-              {t("newItem.imageHelp")}{" "}
-              <span className="cursor-pointer underline">{t("newItem.viewPhotoGuide")}</span>
-            </p>
-            <p className="mb-3 text-xs text-muted-foreground">{t("newItem.fileRequirements")}</p>
+            <p className="mb-3 text-xs text-[#BABABF]">{t("newItem.imageHelp")}</p>
             <div className="flex items-start gap-4">
               {uploadedImage ? (
                 <div className="relative h-28 w-28 rounded-lg overflow-hidden border border-border">
                   <img src={uploadedImage} alt="Item" className="h-full w-full object-cover" />
-                  <button onClick={() => setUploadedImage(null)} className="absolute top-1 right-1 h-5 w-5 rounded-full bg-foreground/70 flex items-center justify-center hover:bg-foreground/90">
-                    <X className="h-3 w-3 text-background" />
-                  </button>
                 </div>
               ) : (
                 <div onClick={() => setImageDialogOpen(true)} className="flex h-28 w-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary hover:border-muted-foreground transition-colors">
@@ -630,11 +615,26 @@ const NewItemPage = () => {
                 </div>
               )}
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setImageDialogOpen(true)}>{t("newItem.upload")}</Button>
-                <Button variant="outline" size="sm" className="text-muted-foreground" onClick={() => setUploadedImage(null)}>{t("newItem.deleteImage")}</Button>
+                <Button variant="outline" size="sm" onClick={() => setImageDialogOpen(true)}>
+                  {uploadedImage ? t("newItem.editImage") : t("newItem.upload")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-muted-foreground"
+                  disabled={!uploadedImage}
+                  onClick={() => setUploadedImage(null)}
+                >
+                  {t("newItem.deleteImage")}
+                </Button>
               </div>
             </div>
-            <ImageUploadDialog open={imageDialogOpen} onOpenChange={setImageDialogOpen} onImageSelected={(_file, previewUrl) => setUploadedImage(previewUrl)} />
+            <ImageUploadDialog
+              open={imageDialogOpen}
+              onOpenChange={setImageDialogOpen}
+              onImageSelected={(_file, previewUrl) => setUploadedImage(previewUrl)}
+              initialImageUrl={uploadedImage ?? undefined}
+            />
           </div>
 
           {/* Description */}
@@ -707,22 +707,10 @@ const NewItemPage = () => {
             </Select>
           </div>
 
-          {/* Allergens */}
-          <div>
-            <label className="mb-2 block text-sm font-medium">{t("newItem.allergens")}</label>
-            <div className="flex flex-wrap gap-2">
-              {allergens.map((a, idx) => (
-                <Badge key={idx} variant={selectedAllergens.includes(idx) ? "default" : "outline"} className={`cursor-pointer px-3 py-1 text-xs ${selectedAllergens.includes(idx) ? "bg-foreground text-card hover:bg-foreground/80" : "hover:bg-secondary"}`} onClick={() => toggleAllergen(idx)}>
-                  {a}
-                </Badge>
-              ))}
-            </div>
-          </div>
-
           {/* Contains Alcohol */}
           <div>
             <label className="mb-1 block text-sm font-medium">{t("newItem.containsAlcohol")}</label>
-            <p className="mb-2 text-xs text-muted-foreground">{t("newItem.alcoholWarning")}</p>
+            <p className="mb-2 text-xs text-[#BABABF]">{t("newItem.alcoholWarning")}</p>
             <RadioGroup value={containsAlcohol} onValueChange={setContainsAlcohol} className="flex gap-6">
               <div className="flex items-center gap-2"><RadioGroupItem value="no" id="alc-no" /><Label htmlFor="alc-no">{t("newItem.no")}</Label></div>
               <div className="flex items-center gap-2"><RadioGroupItem value="yes" id="alc-yes" /><Label htmlFor="alc-yes">{t("newItem.yes")}</Label></div>
@@ -1015,10 +1003,9 @@ const NewItemPage = () => {
           <div>
             <label className="mb-1 block text-sm font-medium">{t("newItem.price")} <span className="text-destructive">*</span></label>
 
-            <div className="mb-3 rounded-lg border border-border p-4">
+            <div className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
               <div className="mb-2">
                 <span className="text-sm font-semibold">{t("newItem.deliveryTitle")}</span>
-                <p className="text-xs text-muted-foreground">{t("newItem.originalPrice")}</p>
               </div>
               <div className="relative">
                 <Input placeholder={t("newItem.pleaseEnter")} value={deliveryPrice} onChange={(e) => setDeliveryPrice(e.target.value)} className={submitted && !deliveryPrice.trim() ? "border-destructive focus-visible:ring-destructive" : ""} />
@@ -1048,12 +1035,13 @@ const NewItemPage = () => {
             </RadioGroup>
           </div>
 
-          {/* Sale Time */}
+          {/* Available Time */}
           <div>
             <label className="mb-2 block text-sm font-medium">{t("newItem.saleTime")}</label>
             <RadioGroup value={saleTimeType} onValueChange={setSaleTimeType} className="flex gap-6">
+              <div className="flex items-center gap-2"><RadioGroupItem value="allDay" id="time-allDay" /><Label htmlFor="time-allDay">{t("newItem.allDay")}</Label></div>
               <div className="flex items-center gap-2"><RadioGroupItem value="weekly" id="time-weekly" /><Label htmlFor="time-weekly">{t("newItem.weeklyCycle")}</Label></div>
-              <div className="flex items-center gap-2"><RadioGroupItem value="specific" id="time-specific" /><Label htmlFor="time-specific">{t("newItem.specificTime")}</Label></div>
+              <div className="flex items-center gap-2"><RadioGroupItem value="specific" id="time-specific" /><Label htmlFor="time-specific">{t("newItem.specificDate")}</Label></div>
             </RadioGroup>
           </div>
 
@@ -1063,13 +1051,14 @@ const NewItemPage = () => {
       </div>{/* end form content */}
 
       {/* Sticky bottom action buttons */}
-      <div className="sticky bottom-0 border-t border-border bg-background px-6 py-4">
+      <div className="sticky bottom-0 border-t border-border bg-white px-6 py-4">
         <div className="mx-auto flex max-w-2xl gap-3">
           <Button onClick={handleSubmit} className="bg-primary text-primary-foreground hover:bg-primary/90">
             {isEdit ? t("newItem.save") : t("newItem.submit")}
           </Button>
           <Button variant="outline" onClick={() => navigate("/")}>{t("newItem.discard")}</Button>
         </div>
+      </div>
       </div>
 
       {/* New Modifier Dialog */}
