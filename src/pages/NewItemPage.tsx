@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type ChangeEvent } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AdminLayout from "@/components/AdminLayout";
@@ -14,8 +14,12 @@ import {
   Link2,
   Pencil,
   Info,
+  TrendingUp,
+  ThumbsUp,
 } from "lucide-react";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
+import { LinkExistingOptionGroupsDialog } from "@/components/LinkExistingOptionGroupsDialog";
+import { PRESET_OPTION_GROUPS, type PresetOptionGroup } from "@/data/presetOptionGroups";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -35,7 +39,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useMenu } from "@/contexts/MenuContext";
+import { useMenu, type ComboPortion } from "@/contexts/MenuContext";
 import { toast } from "@/hooks/use-toast";
 import {
   buildMenuItemPayload,
@@ -44,6 +48,69 @@ import {
   stripOptionGroupNameSuffix,
 } from "@/domains/dishes/model/menuItemMappers";
 import { cn } from "@/lib/utils";
+
+const COMBO_PORTION_OPTIONS: { id: ComboPortion; labelKey: string; rangeKey: string }[] = [
+  { id: "single", labelKey: "newItem.comboPortionSingle", rangeKey: "newItem.comboPortionRange1" },
+  { id: "double", labelKey: "newItem.comboPortionDouble", rangeKey: "newItem.comboPortionRange2" },
+  { id: "large", labelKey: "newItem.comboPortionLarge", rangeKey: "newItem.comboPortionRange34" },
+  { id: "xlarge", labelKey: "newItem.comboPortionXlarge", rangeKey: "newItem.comboPortionRange58" },
+  { id: "other", labelKey: "newItem.comboPortionOther", rangeKey: "newItem.comboPortionRange8plus" },
+];
+
+const parseLocaleNumber = (s: string): number => {
+  const t = s.replace(",", ".").trim();
+  if (t === "") return NaN;
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? n : NaN;
+};
+
+const formatMoneyForCombo = (n: number): string => {
+  if (!Number.isFinite(n) || n < 0) return "";
+  return (Math.round(n * 100) / 100).toFixed(2);
+};
+
+/** 由原价与折后价反推折扣率（0–100）后的展示字符串 */
+const formatDiscountPercentFromRatio = (d: number): string => {
+  const r = Math.round(d * 100) / 100;
+  const rounded = Math.round(r);
+  if (Math.abs(r - rounded) < 1e-6) return String(rounded);
+  return String(r);
+};
+
+const COMBO_DISCOUNT_PRESETS = [
+  { percent: 15, titleKey: "newItem.comboPreset85Title", descKey: "newItem.comboPreset85Desc", recommended: false },
+  { percent: 20, titleKey: "newItem.comboPreset80Title", descKey: "newItem.comboPreset80Desc", recommended: true },
+  { percent: 30, titleKey: "newItem.comboPreset70Title", descKey: "newItem.comboPreset70Desc", recommended: false },
+] as const;
+
+type SuffixInputProps = {
+  value: string;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  placeholder: string;
+  suffix: string;
+  invalid?: boolean;
+};
+
+/** 与系统 Input 一致的描边，右侧后缀区与输入框竖线分隔 */
+const SuffixInput = ({ value, onChange, placeholder, suffix, invalid }: SuffixInputProps) => (
+  <div
+    className={cn(
+      "flex min-h-10 overflow-hidden rounded-md border border-[#BABABF] bg-transparent transition-colors focus-within:border-black",
+      invalid && "border-destructive focus-within:border-destructive",
+    )}
+  >
+    <Input
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      inputMode="decimal"
+      className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-base shadow-none placeholder:text-[#BABABF] focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none md:text-sm"
+    />
+    <div className="flex shrink-0 items-center border-l border-[#BABABF] bg-[#F2F2F5] px-3 text-sm font-medium text-muted-foreground">
+      {suffix}
+    </div>
+  </div>
+);
 
 /** 子项「范围最大」：仅保留大于 1 的整数，否则视为无限制 */
 const normalizeSubItemRangeMax = (raw: string): string => {
@@ -223,12 +290,20 @@ const NewItemPage = () => {
 
   const isEdit = !!itemId;
   const existingData = isEdit ? getItemById(itemId) : null;
+  /** 已保存菜品再次编辑时不允许改类型（单品/套餐） */
+  const itemTypeLocked = isEdit && existingData !== null;
 
   const fromCategory = (location.state as { fromCategory?: number })?.fromCategory;
   const initialCategory =
     typeof fromCategory === "number" && fromCategory >= 0 ? String(fromCategory) : "";
 
   const [itemType, setItemType] = useState<"items" | "combo">("items");
+  const [comboPortion, setComboPortion] = useState<ComboPortion>("single");
+  const [comboOriginalPrice, setComboOriginalPrice] = useState("");
+  const [comboDiscountPercent, setComboDiscountPercent] = useState("");
+  const [discountPresetPanelOpen, setDiscountPresetPanelOpen] = useState(false);
+  const discountComboFieldRef = useRef<HTMLDivElement>(null);
+  const prevItemTypeRef = useRef<"items" | "combo" | undefined>(undefined);
   const [itemName, setItemName] = useState("");
   const [pdvCode, setPdvCode] = useState("");
   const [description, setDescription] = useState("");
@@ -252,6 +327,9 @@ const NewItemPage = () => {
       const { item, categoryIndex } = existingData;
       const draft = mapMenuItemToFormDraft(item, categoryIndex);
       setItemType(draft.itemType);
+      setComboPortion(draft.comboPortion);
+      setComboOriginalPrice(draft.comboOriginalPrice);
+      setComboDiscountPercent(draft.comboDiscountPercent);
       setItemName(draft.itemName);
       setPdvCode(draft.pdvCode);
       setDescription(draft.description);
@@ -267,13 +345,33 @@ const NewItemPage = () => {
       const isImageUrl = typeof item.image === "string" && (/^(https?|blob|data):/.test(item.image) || (item.image.includes("/") && item.image.length > 4));
       setUploadedImage(isImageUrl ? item.image : null);
     } else {
+      setComboPortion("single");
+      setComboOriginalPrice("");
+      setComboDiscountPercent("");
       setModifierGroups([]);
       setUploadedImage(null);
     }
   }, [itemId]);
 
+  /** 新建等可切换类型时：单品外卖价 → 切到套餐后写入设定原价，并按已有折扣重算折后价 */
+  useEffect(() => {
+    if (!itemTypeLocked && prevItemTypeRef.current === "items" && itemType === "combo") {
+      const d = deliveryPrice.trim();
+      if (d) {
+        setComboOriginalPrice(d);
+        const o = parseLocaleNumber(d);
+        const disc = parseLocaleNumber(comboDiscountPercent);
+        if (Number.isFinite(o) && o >= 0 && Number.isFinite(disc) && disc >= 0 && disc <= 100) {
+          setDeliveryPrice(formatMoneyForCombo(o * (1 - disc / 100)));
+        }
+      }
+    }
+    prevItemTypeRef.current = itemType;
+  }, [itemType, itemTypeLocked, deliveryPrice, comboDiscountPercent]);
+
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [dragItem, setDragItem] = useState<{ groupId: string; idx: number } | null>(null);
+  const [linkExistingGroupsDialogOpen, setLinkExistingGroupsDialogOpen] = useState(false);
 
   interface ModifierGroupItem {
     name: string;
@@ -345,6 +443,35 @@ const NewItemPage = () => {
         return { ...g, status: "saved" as const };
       }),
     );
+  };
+
+  const handleLinkExistingGroupsConfirm = (selected: PresetOptionGroup[]) => {
+    if (selected.length === 0) return;
+    const base = Date.now();
+    const toFormPrice = (raw: string) => {
+      const v = raw.replace(/^R\$\s?/i, "").trim();
+      if (!v) return "R$0.00";
+      return `R$${v}`;
+    };
+    setModifierGroups((prev) => [
+      ...prev,
+      ...selected.map((preset, i) => ({
+        id: `mg-${base}-${i}-${preset.id}`,
+        name: preset.title,
+        customId: "",
+        min: String(preset.min),
+        max: String(preset.max),
+        allowMultiple: false,
+        required: preset.min > 0 && preset.min === preset.max,
+        collapsed: false,
+        items: preset.modifiers.map((m) => ({
+          name: m.name,
+          price: toFormPrice(m.price),
+          maxQty: "unlimited" as const,
+        })),
+        status: "saved" as const,
+      })),
+    ]);
   };
 
   const getMinValue = (min: string) => parseInt(min) || 0;
@@ -431,6 +558,38 @@ const NewItemPage = () => {
     setNewModifierDialogOpen(false);
   };
 
+  const recalcComboDeliveryFromOriginalAndDiscount = (orig: string, disc: string) => {
+    const o = parseLocaleNumber(orig);
+    const d = parseLocaleNumber(disc);
+    if (!Number.isFinite(o) || o < 0 || !Number.isFinite(d) || d < 0 || d > 100) return;
+    setDeliveryPrice(formatMoneyForCombo(o * (1 - d / 100)));
+  };
+
+  const onComboOriginalChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setComboOriginalPrice(v);
+    recalcComboDeliveryFromOriginalAndDiscount(v, comboDiscountPercent);
+  };
+
+  const onComboDiscountChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setComboDiscountPercent(v);
+    recalcComboDeliveryFromOriginalAndDiscount(comboOriginalPrice, v);
+  };
+
+  const onComboDiscountedChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setDeliveryPrice(v);
+    const trimmed = v.trim();
+    if (!trimmed) return;
+    const o = parseLocaleNumber(comboOriginalPrice);
+    const p = parseLocaleNumber(trimmed);
+    if (!Number.isFinite(o) || o <= 0 || !Number.isFinite(p) || p < 0 || p > o) return;
+    const d = (1 - p / o) * 100;
+    if (d < 0 || d > 100) return;
+    setComboDiscountPercent(formatDiscountPercentFromRatio(d));
+  };
+
   const handleSubmit = () => {
     setSubmitted(true);
     if (!itemName.trim() || !selectedCategoryIdx || !deliveryPrice.trim()) return;
@@ -465,6 +624,9 @@ const NewItemPage = () => {
 
     const payload = buildMenuItemPayload({
       itemType,
+      comboPortion,
+      comboOriginalPrice,
+      comboDiscountPercent,
       itemName,
       pdvCode,
       description,
@@ -576,36 +738,58 @@ const NewItemPage = () => {
             <label className="mb-2 block text-sm font-medium">{t("newItem.itemType")} <span className="text-destructive">*</span></label>
             <RadioGroup
               value={itemType}
-              onValueChange={(v) => setItemType(v as "items" | "combo")}
-              className="grid grid-cols-2 gap-3"
+              onValueChange={(v) => {
+                if (itemTypeLocked) return;
+                setItemType(v as "items" | "combo");
+              }}
+              className={cn("grid grid-cols-2 gap-3", itemTypeLocked && "pointer-events-none opacity-80")}
             >
               <div
                 role="presentation"
-                onClick={() => setItemType("items")}
-                className={`flex h-full min-h-0 cursor-pointer flex-col justify-start rounded-lg border-2 p-4 text-left transition-colors ${itemType === "items" ? "border-foreground" : "border-border hover:border-muted-foreground"}`}
+                onClick={itemTypeLocked ? undefined : () => setItemType("items")}
+                className={cn(
+                  "flex h-full min-h-0 flex-col justify-start rounded-lg border-2 p-4 text-left transition-colors",
+                  itemTypeLocked ? "cursor-not-allowed" : "cursor-pointer",
+                  itemType === "items" ? "border-foreground" : "border-border",
+                  !itemTypeLocked && itemType !== "items" && "hover:border-muted-foreground",
+                )}
               >
                 <div className="flex w-full items-start justify-between gap-2">
-                  <Label htmlFor="item-type-items" className="min-w-0 flex-1 cursor-pointer font-normal">
+                  <Label
+                    htmlFor="item-type-items"
+                    className={cn("min-w-0 flex-1 font-normal", itemTypeLocked ? "cursor-default" : "cursor-pointer")}
+                  >
                     <span className="block text-[14px] font-semibold leading-snug">{t("newItem.itemsType")}</span>
                     <p className="mt-1 text-left text-xs text-muted-foreground">{t("newItem.itemsDesc")}</p>
                   </Label>
-                  <RadioGroupItem value="items" id="item-type-items" className="mt-0.5 shrink-0" />
+                  <RadioGroupItem value="items" id="item-type-items" className="mt-0.5 shrink-0" disabled={itemTypeLocked} />
                 </div>
               </div>
               <div
                 role="presentation"
-                onClick={() => setItemType("combo")}
-                className={`flex h-full min-h-0 cursor-pointer flex-col justify-start rounded-lg border-2 p-4 text-left transition-colors ${itemType === "combo" ? "border-foreground" : "border-border hover:border-muted-foreground"}`}
+                onClick={itemTypeLocked ? undefined : () => setItemType("combo")}
+                className={cn(
+                  "flex h-full min-h-0 flex-col justify-start rounded-lg border-2 p-4 text-left transition-colors",
+                  itemTypeLocked ? "cursor-not-allowed" : "cursor-pointer",
+                  itemType === "combo" ? "border-foreground" : "border-border",
+                  !itemTypeLocked && itemType !== "combo" && "hover:border-muted-foreground",
+                )}
               >
                 <div className="flex w-full items-start justify-between gap-2">
-                  <Label htmlFor="item-type-combo" className="min-w-0 flex-1 cursor-pointer font-normal">
+                  <Label
+                    htmlFor="item-type-combo"
+                    className={cn("min-w-0 flex-1 font-normal", itemTypeLocked ? "cursor-default" : "cursor-pointer")}
+                  >
                     <span className="block text-[14px] font-semibold leading-snug">{t("newItem.comboType")}</span>
                     <p className="mt-1 text-left text-xs text-muted-foreground">{t("newItem.comboDesc")}</p>
                   </Label>
-                  <RadioGroupItem value="combo" id="item-type-combo" className="mt-0.5 shrink-0" />
+                  <RadioGroupItem value="combo" id="item-type-combo" className="mt-0.5 shrink-0" disabled={itemTypeLocked} />
                 </div>
               </div>
             </RadioGroup>
+            {itemTypeLocked ? (
+              <p className="mt-2 text-xs text-muted-foreground">{t("newItem.itemTypeLockedHint")}</p>
+            ) : null}
           </div>
 
           {/* Item Name */}
@@ -699,6 +883,39 @@ const NewItemPage = () => {
             {submitted && !selectedCategoryIdx && <p className="mt-1 text-xs text-destructive">{t("newItem.categoryRequired")}</p>}
           </div>
 
+          {/* 套餐份量（仅套餐类型） */}
+          {itemType === "combo" ? (
+            <div>
+              <label className="mb-2 block text-sm font-medium">{t("newItem.comboPortionPrompt")}</label>
+              <RadioGroup
+                value={comboPortion}
+                onValueChange={(v) => setComboPortion(v as ComboPortion)}
+                className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+              >
+                {COMBO_PORTION_OPTIONS.map((op) => (
+                  <div
+                    key={op.id}
+                    role="presentation"
+                    onClick={() => setComboPortion(op.id)}
+                    className={cn(
+                      "relative flex min-h-[92px] cursor-pointer flex-col justify-start rounded-lg border bg-secondary/50 p-3 pt-3.5 text-left transition-colors",
+                      comboPortion === op.id ? "border-foreground" : "border-border hover:border-muted-foreground",
+                    )}
+                  >
+                    <RadioGroupItem value={op.id} id={`combo-portion-${op.id}`} className="absolute right-2.5 top-2.5 shrink-0" />
+                    <Label
+                      htmlFor={`combo-portion-${op.id}`}
+                      className="min-w-0 cursor-pointer pr-7 font-normal"
+                    >
+                      <span className="block text-sm font-semibold leading-snug">{t(op.labelKey)}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{t(op.rangeKey)}</span>
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            </div>
+          ) : null}
+
           {/* Item Classification - hidden */}
           <div className="hidden">
             <label className="mb-1 block text-sm font-medium">{t("newItem.itemClassification")} ℹ</label>
@@ -765,6 +982,8 @@ const NewItemPage = () => {
               const badgeText = group.status === "saved" ? t("newItem.saved") : t("newItem.unsaved");
               const isDragDisabled = modifierGroups.length <= 1;
               const minVal = getMinValue(group.min);
+              const maxVal = getMaxValue(group.max);
+              const allowMultipleDisabled = minVal === 1 && maxVal === 1;
               const reqDisabled = isRequiredDisabled(group.min, group.max);
               const reqForced = isRequiredForced(group.min);
 
@@ -842,10 +1061,12 @@ const NewItemPage = () => {
                             onChange={(e) => {
                               const newMin = e.target.value;
                               const newMinVal = parseInt(newMin) || 0;
+                              const newMaxVal = getMaxValue(group.max);
                               const updates: Partial<ModifierGroup> = { min: newMin };
                               if (newMinVal === 0) updates.required = false;
-                              else if (newMinVal > 0 && newMinVal !== getMaxValue(group.max))
+                              else if (newMinVal > 0 && newMinVal !== newMaxVal)
                                 updates.required = true;
+                              if (newMinVal === 1 && newMaxVal === 1) updates.allowMultiple = false;
                               updateModifierGroup(group.id, updates);
                             }}
                           />
@@ -864,6 +1085,7 @@ const NewItemPage = () => {
                                 const updates: Partial<ModifierGroup> = { max: newMax };
                                 if (minVal === 0) updates.required = false;
                                 else if (minVal > 0 && minVal !== newMaxVal) updates.required = true;
+                                if (minVal === 1 && newMaxVal === 1) updates.allowMultiple = false;
                                 updateModifierGroup(group.id, updates);
                               }}
                             />
@@ -873,11 +1095,14 @@ const NewItemPage = () => {
 
                       {/* Checkboxes */}
                       <div className="space-y-2">
-                        <label className="flex items-center gap-2 text-sm">
+                        <label
+                          className={`flex items-center gap-2 text-sm ${allowMultipleDisabled ? "opacity-50" : ""}`}
+                        >
                           <input
                             type="checkbox"
                             className="rounded border-border"
-                            checked={group.allowMultiple}
+                            checked={allowMultipleDisabled ? false : group.allowMultiple}
+                            disabled={allowMultipleDisabled}
                             onChange={(e) => updateModifierGroup(group.id, { allowMultiple: e.target.checked })}
                           />
                           {t("newItem.customerCanAddMultiple")}
@@ -1008,7 +1233,11 @@ const NewItemPage = () => {
                   </span>
                   {t("newItem.createNewGroup")}
                 </button>
-                <button className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors">
+                <button
+                  type="button"
+                  onClick={() => setLinkExistingGroupsDialogOpen(true)}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors"
+                >
                   <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
                     <Link2 className="h-4 w-4" strokeWidth={2.25} />
                   </span>
@@ -1031,17 +1260,144 @@ const NewItemPage = () => {
           <div>
             <label className="mb-1 block text-sm font-medium">{t("newItem.price")} <span className="text-destructive">*</span></label>
 
-            <div className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
-              <div className="mb-2">
-                <span className="text-[14px] font-semibold">{t("newItem.deliveryTitle")}</span>
-              </div>
-              <div className="relative">
-                <Input placeholder={t("newItem.pleaseEnter")} value={deliveryPrice} onChange={(e) => setDeliveryPrice(e.target.value)} className={submitted && !deliveryPrice.trim() ? "border-destructive focus-visible:ring-destructive" : ""} />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
-              </div>
-              {submitted && !deliveryPrice.trim() && <p className="mt-1 text-xs text-destructive">{t("newItem.deliveryPriceRequired")}</p>}
-            </div>
+            {itemType === "combo" ? (
+              <div className="mb-3 space-y-4 rounded-lg bg-[#F9F9FC] p-4">
+                <h3 className="text-[14px] font-semibold text-foreground">{t("newItem.comboDeliverySection")}</h3>
 
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-foreground">
+                    {t("newItem.comboSetOriginalPrice")}
+                  </label>
+                  <SuffixInput
+                    value={comboOriginalPrice}
+                    onChange={onComboOriginalChange}
+                    placeholder={t("newItem.comboPricePlaceholder")}
+                    suffix="R$"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-4">
+                  <div ref={discountComboFieldRef} className="relative">
+                    <label className="mb-1 block text-sm font-medium text-foreground">{t("newItem.comboDiscount")}</label>
+                    <div className="flex min-h-10 overflow-hidden rounded-md border border-[#BABABF] bg-transparent transition-colors focus-within:border-black">
+                      <Input
+                        value={comboDiscountPercent}
+                        onChange={onComboDiscountChange}
+                        onFocus={() => setDiscountPresetPanelOpen(true)}
+                        onBlur={() => {
+                          window.setTimeout(() => {
+                            if (!discountComboFieldRef.current?.contains(document.activeElement)) {
+                              setDiscountPresetPanelOpen(false);
+                            }
+                          }, 0);
+                        }}
+                        placeholder={t("newItem.comboDiscount")}
+                        inputMode="decimal"
+                        className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-base shadow-none placeholder:text-[#BABABF] focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none md:text-sm"
+                      />
+                      <div className="flex shrink-0 items-center border-l border-[#BABABF] bg-[#F2F2F5] px-3 text-sm font-medium text-muted-foreground">
+                        %
+                      </div>
+                    </div>
+                    {discountPresetPanelOpen ? (
+                      <div
+                        role="listbox"
+                        aria-label={t("newItem.comboDiscountPresetsAria")}
+                        className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 overflow-hidden rounded-lg border border-border bg-popover py-0 text-popover-foreground shadow-lg"
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        {COMBO_DISCOUNT_PRESETS.map((preset) => (
+                          <button
+                            key={preset.percent}
+                            type="button"
+                            role="option"
+                            className="w-full border-b border-border px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-[#F2F2F5] focus:bg-[#F2F2F5] focus:outline-none"
+                            onClick={() => {
+                              const s = String(preset.percent);
+                              setComboDiscountPercent(s);
+                              recalcComboDeliveryFromOriginalAndDiscount(comboOriginalPrice, s);
+                              setDiscountPresetPanelOpen(false);
+                            }}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-sm font-semibold text-foreground">{t(preset.titleKey)}</span>
+                              {preset.recommended ? (
+                                <Badge
+                                  variant="outline"
+                                  className="shrink-0 gap-0.5 rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                                >
+                                  <ThumbsUp className="h-3 w-3" aria-hidden />
+                                  {t("newItem.comboDiscountRecommended")}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-xs leading-snug text-muted-foreground">{t(preset.descKey)}</p>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-foreground">
+                      {t("newItem.comboPriceAfterDiscount")} <span className="text-destructive">*</span>
+                    </label>
+                    <SuffixInput
+                      value={deliveryPrice}
+                      onChange={onComboDiscountedChange}
+                      placeholder={t("newItem.comboPricePlaceholder")}
+                      suffix="R$"
+                      invalid={submitted && !deliveryPrice.trim()}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 rounded-lg bg-[#EFEFF2] p-3 text-sm">
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-muted-foreground shadow-sm"
+                    aria-hidden
+                  >
+                    <TrendingUp className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="leading-snug text-foreground">{t("newItem.comboDiscountTip")}</p>
+                    <button
+                      type="button"
+                      className="font-medium text-[hsl(30,100%,50%)] hover:underline"
+                      onClick={() => toast({ title: t("newItem.comboDiscountLearnMoreToast") })}
+                    >
+                      {t("newItem.comboDiscountLearnMore")}
+                    </button>
+                  </div>
+                </div>
+
+                {submitted && !deliveryPrice.trim() ? (
+                  <p className="text-xs text-destructive">{t("newItem.deliveryPriceRequired")}</p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
+                <div className="mb-2">
+                  <span className="text-[14px] font-semibold">{t("newItem.deliveryTitle")}</span>
+                </div>
+                <div className="relative">
+                  <Input
+                    placeholder={t("newItem.pleaseEnter")}
+                    value={deliveryPrice}
+                    onChange={(e) => setDeliveryPrice(e.target.value)}
+                    className={cn(
+                      submitted && !deliveryPrice.trim() ? "border-destructive focus-visible:ring-destructive" : "",
+                      "pr-10",
+                    )}
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
+                    R$
+                  </span>
+                </div>
+                {submitted && !deliveryPrice.trim() ? (
+                  <p className="mt-1 text-xs text-destructive">{t("newItem.deliveryPriceRequired")}</p>
+                ) : null}
+              </div>
+            )}
           </div>
 
           {/* Stocking - hidden */}
@@ -1266,6 +1622,13 @@ const NewItemPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <LinkExistingOptionGroupsDialog
+        open={linkExistingGroupsDialogOpen}
+        onOpenChange={setLinkExistingGroupsDialogOpen}
+        groups={PRESET_OPTION_GROUPS}
+        onConfirm={handleLinkExistingGroupsConfirm}
+      />
 
       <AlertDialog open={!!deleteGroupId} onOpenChange={(open) => !open && setDeleteGroupId(null)}>
         <AlertDialogContent>

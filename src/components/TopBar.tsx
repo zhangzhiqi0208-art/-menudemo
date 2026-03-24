@@ -1,15 +1,34 @@
-import { Bell, Headphones, Globe } from "lucide-react";
+import { Bell, ChevronDown, Globe, Headphones } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import logo99Food from "@/assets/系统内置/99Food-logo.png";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+function normalizeUiLang(lng: string): "zh" | "en" | "pt" {
+  if (lng.startsWith("zh")) return "zh";
+  if (lng.startsWith("pt")) return "pt";
+  return "en";
+}
 
 export const TopBar = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const current = normalizeUiLang(i18n.resolvedLanguage || i18n.language);
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-card px-6">
       <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
-          99
-        </div>
+        <img
+          src={logo99Food}
+          alt=""
+          className="h-8 w-8 shrink-0 rounded-lg object-cover"
+          width={32}
+          height={32}
+        />
         <span className="text-lg font-semibold text-foreground">{t("appName")}</span>
       </div>
       <div className="flex items-center gap-4">
@@ -19,15 +38,29 @@ export const TopBar = () => {
         <button className="hidden rounded-full p-2 hover:bg-secondary">
           <Bell className="h-5 w-5 text-muted-foreground" />
         </button>
-        <button
-          className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground cursor-default transition-colors"
-          aria-label="语言"
-          type="button"
-          disabled
-        >
-          <Globe className="h-4 w-4" />
-          <span>🇨🇳 中文</span>
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+              aria-label={t("language.menuAria")}
+            >
+              <Globe className="h-4 w-4 shrink-0" />
+              <span>{t(`language.${current}`)}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[200px]">
+            <DropdownMenuRadioGroup
+              value={current}
+              onValueChange={(code) => void i18n.changeLanguage(code)}
+            >
+              <DropdownMenuRadioItem value="zh">{t("language.zh")}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="en">{t("language.en")}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="pt">{t("language.pt")}</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

@@ -1,4 +1,4 @@
-import type { AddOnGroup, AddOnItem, MenuItem } from "@/contexts/MenuContext";
+import type { AddOnGroup, AddOnItem, ComboPortion, MenuItem } from "@/contexts/MenuContext";
 
 /** 去掉历史数据里名称中的「（2选1）」「(3选1)」等后缀 */
 export const stripOptionGroupNameSuffix = (name: string) =>
@@ -18,6 +18,9 @@ export const formatAddOnGroupListLabel = (
 
 export type DishFormDraft = {
   itemType: "items" | "combo";
+  comboPortion: ComboPortion;
+  comboOriginalPrice: string;
+  comboDiscountPercent: string;
   itemName: string;
   pdvCode: string;
   description: string;
@@ -79,6 +82,9 @@ export const mapMenuItemToFormDraft = (
   categoryIndex: number,
 ): DishFormDraft => ({
   itemType: item.itemType ?? "items",
+  comboPortion: item.comboPortion ?? "single",
+  comboOriginalPrice: item.comboOriginalPrice ?? "",
+  comboDiscountPercent: item.comboDiscountPercent ?? "",
   itemName: item.title,
   pdvCode: item.pdvCode || "",
   description: item.description || "",
@@ -93,6 +99,9 @@ export const mapMenuItemToFormDraft = (
 
 type BuildPayloadInput = {
   itemType: "items" | "combo";
+  comboPortion: ComboPortion;
+  comboOriginalPrice: string;
+  comboDiscountPercent: string;
   itemName: string;
   pdvCode: string;
   description: string;
@@ -106,6 +115,9 @@ type BuildPayloadInput = {
 
 export const buildMenuItemPayload = ({
   itemType,
+  comboPortion,
+  comboOriginalPrice,
+  comboDiscountPercent,
   itemName,
   pdvCode,
   description,
@@ -132,6 +144,13 @@ export const buildMenuItemPayload = ({
     status: true,
     addOns: [],
     itemType,
+    ...(itemType === "combo"
+      ? {
+          comboPortion,
+          comboOriginalPrice: comboOriginalPrice.trim(),
+          comboDiscountPercent: comboDiscountPercent.trim(),
+        }
+      : {}),
     pdvCode,
     description,
     notSoldIndependently: canSoldSeparately === "no",

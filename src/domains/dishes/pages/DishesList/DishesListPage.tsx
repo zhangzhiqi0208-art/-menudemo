@@ -10,6 +10,7 @@ import batchActivateIcon from "@/assets/批量操作/批量-上架.svg";
 import batchRemoveIcon from "@/assets/批量操作/批量-下架.svg";
 import batchMoreIcon from "@/assets/批量操作/批量-更多.svg";
 import batchCancelIcon from "@/assets/批量操作/批量-取消.svg";
+import sortIcon from "@/assets/排序.svg";
 import {
   Search,
   Plus,
@@ -47,6 +48,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -69,12 +71,88 @@ function isItemImageUrl(image: unknown): boolean {
   return /^(https?|blob|data):/.test(image) || (image.includes("/") && image.length > 4);
 }
 
+/** 独立菜 title 与某父菜加购子项 name 一致 */
+function isLinkedStandaloneAndSub(
+  itemsByCat: Record<number, MenuItem[]>,
+  name: string,
+): boolean {
+  let hasStandalone = false;
+  let hasSub = false;
+  for (const key of Object.keys(itemsByCat)) {
+    for (const item of itemsByCat[Number(key)] || []) {
+      if (item.title === name) hasStandalone = true;
+      if (item.addOns?.some((g) => g.items.some((s) => s.name === name)))
+        hasSub = true;
+    }
+  }
+  return hasStandalone && hasSub;
+}
+
+/** 包含该子项名称的父菜标题（去重、遍历顺序稳定） */
+function collectParentTitlesForLinkedName(
+  itemsByCat: Record<number, MenuItem[]>,
+  name: string,
+): string[] {
+  const titles: string[] = [];
+  for (const key of Object.keys(itemsByCat)) {
+    for (const item of itemsByCat[Number(key)] || []) {
+      if (!item.addOns?.some((g) => g.items.some((s) => s.name === name)))
+        continue;
+      if (!titles.includes(item.title)) titles.push(item.title);
+    }
+  }
+  return titles;
+}
+
+function formatParentTitlesBracketed(parents: string[]): string {
+  return parents.map((p) => `【${p}】`).join("");
+}
+
 const DishesListPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
   const { categories, setCategories, categoryItems, setCategoryItems, updateItem } =
     useMenu();
+
+  const [linkedUnlistDialog, setLinkedUnlistDialog] = useState<{
+    itemName: string;
+    parentTitles: string[];
+  } | null>(null);
+
+  const applyLinkedItemStatusEverywhere = (itemName: string, status: boolean) => {
+    setCategoryItems((prev) => {
+      const next: Record<number, MenuItem[]> = {};
+      for (const key of Object.keys(prev)) {
+        const idx = Number(key);
+        next[idx] = (prev[idx] || []).map((item) => {
+          let updated: MenuItem = { ...item };
+          if (updated.title === itemName) {
+            updated = { ...updated, status };
+          }
+          if (updated.addOns?.length) {
+            updated = {
+              ...updated,
+              addOns: updated.addOns.map((g) => ({
+                ...g,
+                items: g.items.map((s) =>
+                  s.name === itemName ? { ...s, status } : s,
+                ),
+              })),
+            };
+          }
+          return updated;
+        });
+      }
+      return next;
+    });
+  };
+
+  const confirmLinkedUnlist = () => {
+    if (!linkedUnlistDialog) return;
+    applyLinkedItemStatusEverywhere(linkedUnlistDialog.itemName, false);
+    setLinkedUnlistDialog(null);
+  };
   const [selectedCategory, setSelectedCategory] = useState(() => {
     const cat = (location.state as { selectCategory?: number })?.selectCategory;
     return typeof cat === "number" && cat >= 0 ? cat : 0;
@@ -453,28 +531,41 @@ const DishesListPage = () => {
   const expensiveTooltipText = "高价菜";
   const affordableTooltipText = "平价菜";
 
+  /** 仅「招牌汉堡」分类展示高价菜/平价菜图标 */
+  const showPriceTierIcon =
+    (categories[selectedCategory]?.name ?? "").includes("招牌汉堡");
+
   const PriceWithIcon = ({
     price,
     onPriceClick,
     enablePriceHoverBg = false,
+    showTierIcon = false,
+    expensiveTooltipOverride,
   }: {
     price: string;
     onPriceClick?: () => void;
     enablePriceHoverBg?: boolean;
+    showTierIcon?: boolean;
+    /** 高价菜图标悬停文案（仅当价格档位为高价时生效） */
+    expensiveTooltipOverride?: string;
   }) => {
     const value = parseBRL(price);
     const icon = value > 40 ? expensiveDishIcon : affordableDishIcon;
-    const alt = value > 40 ? "高价菜" : "平价菜";
-    const tooltipText = value > 40 ? expensiveTooltipText : affordableTooltipText;
+    const isExpensive = value > 40;
+    const expensiveLabel = expensiveTooltipOverride ?? expensiveTooltipText;
+    const alt = isExpensive ? expensiveLabel : "平价菜";
+    const tooltipText = isExpensive ? expensiveLabel : affordableTooltipText;
 
     return (
-      <span className="inline-flex items-center justify-end gap-0.5 whitespace-nowrap">
+      <span className="flex min-w-0 w-full items-center justify-end gap-0.5 whitespace-nowrap tabular-nums">
         {onPriceClick ? (
           <button
             type="button"
             onClick={onPriceClick}
             className={[
-              "whitespace-nowrap rounded px-2 py-1 text-right transition-colors",
+              "whitespace-nowrap rounded py-1 text-right transition-colors",
+              /* 与无按钮的子项价格同一右缘，避免比表头/主行更靠右 */
+              "px-0",
               enablePriceHoverBg ? "hover:bg-secondary" : "",
             ].join(" ")}
           >
@@ -484,23 +575,25 @@ const DishesListPage = () => {
           <span className="whitespace-nowrap">{price}</span>
         )}
 
-        <TooltipProvider delayDuration={300}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="shrink-0"
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <img src={icon} alt={alt} className="h-5 w-5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>{tooltipText}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        {showTierIcon && (
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="shrink-0"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <img src={icon} alt={alt} className="h-5 w-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p>{tooltipText}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </span>
     );
   };
@@ -631,7 +724,7 @@ const DishesListPage = () => {
                         className="rounded border border-border p-1 hover:bg-secondary"
                         onClick={() => setSortDialogOpen(true)}
                       >
-                        <List className="h-3.5 w-3.5 text-muted-foreground" />
+                        <img src={sortIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">
@@ -646,7 +739,7 @@ const DishesListPage = () => {
                         className="rounded border border-border p-1 hover:bg-secondary"
                         onClick={() => setAddDialogOpen(true)}
                       >
-                        <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Plus className="h-3.5 w-3.5 text-[#212121]" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">
@@ -748,19 +841,29 @@ const DishesListPage = () => {
           <div className="flex-1 overflow-auto">
             {!batchMode && (
               <div className="mb-2 flex h-[48px] items-center justify-between">
-                <h2 className="text-base font-semibold">
-                  {categories[selectedCategory].name}{" "}
+                <h2 className="flex items-center gap-2 text-base font-semibold">
+                  <span>{categories[selectedCategory].name}</span>
                   <span className="font-normal text-muted-foreground">
-                    {getCategoryVisibleCount(selectedCategory)}{" "}
+                    {getCategoryVisibleCount(selectedCategory)}
                     {t("menuList.itemsCount")}
                   </span>
                 </h2>
-                <button
-                  onClick={() => setItemSortDialogOpen(true)}
-                  className="rounded border border-border p-1 hover:bg-secondary"
-                >
-                  <List className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setItemSortDialogOpen(true)}
+                        className="rounded border border-border p-1 hover:bg-secondary"
+                      >
+                        <img src={sortIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p>{t("menuList.sortItems")}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             )}
 
@@ -843,7 +946,7 @@ const DishesListPage = () => {
             )}
 
             {batchMode ? (
-              <div className="grid grid-cols-[32px_1fr_160px_70px_30px] gap-4 border-b border-border px-2 pb-2 text-xs text-muted-foreground">
+              <div className="grid grid-cols-[32px_1fr_160px_70px_30px] gap-4 px-4 pb-2 text-xs text-muted-foreground">
                 <div className="flex items-center justify-center">
                   <Checkbox
                     checked={
@@ -858,14 +961,18 @@ const DishesListPage = () => {
                   />
                 </div>
                 <span>{t("menuList.title")}</span>
-                <span className="text-right">{t("menuList.delivery")}</span>
+                <div className="flex min-w-0 w-full justify-end">
+                  <span>{t("menuList.delivery")}</span>
+                </div>
                 <span className="text-center">{t("menuList.status")}</span>
                 <span></span>
               </div>
             ) : (
-              <div className="grid grid-cols-[1fr_160px_70px_30px] gap-4 border-b border-border px-2 pb-2 text-xs text-muted-foreground">
+              <div className="grid grid-cols-[1fr_160px_70px_30px] gap-4 pl-0 pr-4 pb-2 text-xs text-muted-foreground">
                 <span>{t("menuList.title")}</span>
-                <span className="text-right">{t("menuList.delivery")}</span>
+                <div className="flex min-w-0 w-full justify-end">
+                  <span>{t("menuList.delivery")}</span>
+                </div>
                 <span className="text-center">{t("menuList.status")}</span>
                 <span></span>
               </div>
@@ -895,12 +1002,12 @@ const DishesListPage = () => {
               </div>
             ) : (
               <>
-                <div className="divide-y divide-border">
+                <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
                   {displayRows.map((row) =>
                     row.type === "main" ? (
                     <div key={row.item.id}>
                       <div
-                        className={`grid items-center gap-4 px-2 py-3 ${
+                        className={`grid items-center gap-4 px-4 py-3 ${
                           batchMode
                             ? "grid-cols-[32px_1fr_160px_70px_30px]"
                             : "grid-cols-[1fr_160px_70px_30px]"
@@ -1057,7 +1164,7 @@ const DishesListPage = () => {
                           </div>
                         ) : (
                           <div
-                            className={`text-right text-sm whitespace-nowrap ${
+                            className={`flex min-w-0 w-full justify-end text-sm ${
                               !row.item.status ? "text-muted-foreground/50" : ""
                             }`}
                           >
@@ -1065,6 +1172,12 @@ const DishesListPage = () => {
                               price={row.item.deliveryPrice}
                               onPriceClick={() => startEditPrice(row.item)}
                               enablePriceHoverBg
+                              showTierIcon={showPriceTierIcon}
+                              expensiveTooltipOverride={
+                                row.item.title === "三层碎牛肉汉堡"
+                                  ? "高于堂食价格6.9元"
+                                  : undefined
+                              }
                             />
                           </div>
                         )}
@@ -1075,6 +1188,22 @@ const DishesListPage = () => {
                           <Switch
                             checked={row.item.status}
                             onCheckedChange={(checked) => {
+                              const name = row.item.title;
+                              if (isLinkedStandaloneAndSub(categoryItems, name)) {
+                                if (!checked) {
+                                  setLinkedUnlistDialog({
+                                    itemName: name,
+                                    parentTitles:
+                                      collectParentTitlesForLinkedName(
+                                        categoryItems,
+                                        name,
+                                      ),
+                                  });
+                                  return;
+                                }
+                                applyLinkedItemStatusEverywhere(name, true);
+                                return;
+                              }
                               updateItem(row.item.id, { status: checked });
                             }}
                           />
@@ -1092,7 +1221,7 @@ const DishesListPage = () => {
                             key={gi}
                             className="border-t border-border bg-secondary/30"
                           >
-                            <div className="px-2 py-1.5">
+                            <div className="px-4 py-1.5">
                               <span className="block pl-[60px] text-sm font-medium text-muted-foreground">
                                 {formatAddOnGroupListLabel(group, {
                                   required: t("menuList.required"),
@@ -1103,16 +1232,19 @@ const DishesListPage = () => {
                             {group.items.map((sub, si) => (
                               <div key={si}>
                                 <div
-                                  className={`grid grid-cols-[1fr_160px_70px_30px] items-center gap-4 px-2 py-2 ${
+                                  className={`grid grid-cols-[1fr_160px_70px_30px] items-center gap-4 px-4 py-2 ${
                                     !sub.status ? "text-muted-foreground/50" : ""
                                   }`}
                                 >
                                   <span className="text-sm pl-[60px]">
                                     {sub.name}
                                   </span>
-                                  <span className="text-right text-sm whitespace-nowrap">
-                                    <PriceWithIcon price={sub.deliveryPrice} />
-                                  </span>
+                                  <div className="flex min-w-0 w-full justify-end text-sm">
+                                    <PriceWithIcon
+                                      price={sub.deliveryPrice}
+                                      showTierIcon={showPriceTierIcon}
+                                    />
+                                  </div>
                                   <div
                                     className="flex justify-center"
                                     style={{ opacity: !sub.status ? 2.5 : 1 }}
@@ -1120,6 +1252,19 @@ const DishesListPage = () => {
                                     <Switch
                                       checked={sub.status}
                                       onCheckedChange={(checked) => {
+                                        if (
+                                          isLinkedStandaloneAndSub(
+                                            categoryItems,
+                                            sub.name,
+                                          )
+                                        ) {
+                                          /* 父菜下子项下架：直接同步，不二次确认 */
+                                          applyLinkedItemStatusEverywhere(
+                                            sub.name,
+                                            checked,
+                                          );
+                                          return;
+                                        }
                                         const newAddOns = (row.item.addOns || []).map(
                                           (g, gIdx) =>
                                             gIdx === gi
@@ -1159,7 +1304,7 @@ const DishesListPage = () => {
                     <div
                       key={`subgh-${row.parentItem.id}-${row.groupIdx}`}
                       className={`border-t border-border bg-secondary/30 py-1.5 ${
-                        batchMode ? "pl-[92px] pr-2" : "px-2 pl-[60px]"
+                        batchMode ? "pl-[92px] pr-4" : "pl-[60px] pr-4"
                       }`}
                     >
                       <span className="text-sm font-medium text-muted-foreground">
@@ -1172,7 +1317,7 @@ const DishesListPage = () => {
                   ) : (
                     <div
                       key={`sub-${row.parentItem.id}-${row.groupIdx}-${row.subIdx}`}
-                      className={`grid items-center gap-4 px-2 py-3 ${
+                      className={`grid items-center gap-4 px-4 py-3 ${
                         batchMode
                           ? "grid-cols-[32px_1fr_160px_70px_30px]"
                           : "grid-cols-[1fr_160px_70px_30px]"
@@ -1200,11 +1345,14 @@ const DishesListPage = () => {
                         </div>
                       </div>
                       <div
-                        className={`text-right text-sm whitespace-nowrap ${
+                        className={`flex min-w-0 w-full justify-end text-sm ${
                           !row.sub.status ? "text-muted-foreground/50" : ""
                         }`}
                       >
-                        <PriceWithIcon price={row.sub.deliveryPrice} />
+                        <PriceWithIcon
+                          price={row.sub.deliveryPrice}
+                          showTierIcon={showPriceTierIcon}
+                        />
                       </div>
                       <div
                         className="flex justify-center"
@@ -1213,6 +1361,18 @@ const DishesListPage = () => {
                         <Switch
                           checked={row.sub.status}
                           onCheckedChange={(checked) => {
+                            if (
+                              isLinkedStandaloneAndSub(
+                                categoryItems,
+                                row.sub.name,
+                              )
+                            ) {
+                              applyLinkedItemStatusEverywhere(
+                                row.sub.name,
+                                checked,
+                              );
+                              return;
+                            }
                             const newAddOns = (row.parentItem.addOns || []).map(
                               (g, gIdx) =>
                                 gIdx === row.groupIdx
@@ -1240,6 +1400,56 @@ const DishesListPage = () => {
           </div>
         </div>
         )}
+
+        <Dialog
+          open={linkedUnlistDialog != null}
+          onOpenChange={(open) => {
+            if (!open) setLinkedUnlistDialog(null);
+          }}
+        >
+          <DialogContent className="max-w-[520px] gap-0 overflow-hidden p-0 sm:rounded-xl">
+            <div className="flex gap-3 border-b border-border p-6 pb-4 pr-14">
+              <div
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#FF9500] text-[15px] font-bold leading-none text-white"
+                aria-hidden
+              >
+                !
+              </div>
+              <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+                <DialogTitle className="text-left text-base font-bold leading-snug text-foreground">
+                  {t("menuList.linkedUnlistTitle")}
+                </DialogTitle>
+                <DialogDescription className="text-left text-sm leading-relaxed text-muted-foreground">
+                  {linkedUnlistDialog
+                    ? t("menuList.linkedUnlistBody", {
+                        item: linkedUnlistDialog.itemName,
+                        parents: formatParentTitlesBracketed(
+                          linkedUnlistDialog.parentTitles,
+                        ),
+                      })
+                    : null}
+                </DialogDescription>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 bg-card px-6 py-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 min-w-[100px] border-border bg-background font-semibold text-foreground hover:bg-secondary/80"
+                onClick={() => setLinkedUnlistDialog(null)}
+              >
+                {t("menuList.cancel")}
+              </Button>
+              <Button
+                type="button"
+                className="h-10 min-w-[100px] bg-[hsl(50,100%,50%)] font-semibold text-foreground hover:bg-[hsl(50,100%,45%)]"
+                onClick={confirmLinkedUnlist}
+              >
+                {t("menuList.ok")}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
           <DialogContent className="sm:max-w-md">
