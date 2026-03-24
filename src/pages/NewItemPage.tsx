@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type ChangeEvent } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AdminLayout from "@/components/AdminLayout";
@@ -48,6 +49,7 @@ import {
   stripOptionGroupNameSuffix,
 } from "@/domains/dishes/model/menuItemMappers";
 import { cn } from "@/lib/utils";
+import { scrollFieldIntoViewInAdminMain } from "@/lib/scrollFieldIntoView";
 
 const COMBO_PORTION_OPTIONS: { id: ComboPortion; labelKey: string; rangeKey: string }[] = [
   { id: "single", labelKey: "newItem.comboPortionSingle", rangeKey: "newItem.comboPortionRange1" },
@@ -590,9 +592,45 @@ const NewItemPage = () => {
     setComboDiscountPercent(formatDiscountPercentFromRatio(d));
   };
 
+  const itemNameFieldRef = useRef<HTMLDivElement>(null);
+  const categoryFieldRef = useRef<HTMLDivElement>(null);
+  const deliveryPriceFieldRef = useRef<HTMLDivElement>(null);
+
   const handleSubmit = () => {
-    setSubmitted(true);
-    if (!itemName.trim() || !selectedCategoryIdx || !deliveryPrice.trim()) return;
+    const nameInvalid = !itemName.trim();
+    const categoryInvalid = !selectedCategoryIdx;
+    const deliveryInvalid = !deliveryPrice.trim();
+    const modifiersInvalid = modifierGroups.some((g) => g.status !== "saved");
+
+    flushSync(() => {
+      setSubmitted(true);
+      if (modifiersInvalid) {
+        setModifierGroups((prev) =>
+          prev.map((g) =>
+            g.status === "saved" ? g : { ...g, status: "error" as const, collapsed: false },
+          ),
+        );
+      }
+    });
+
+    if (nameInvalid || categoryInvalid || modifiersInvalid || deliveryInvalid) {
+      const scrollTarget = nameInvalid
+        ? itemNameFieldRef.current
+        : categoryInvalid
+          ? categoryFieldRef.current
+          : modifiersInvalid
+            ? modificationsRef.current
+            : deliveryPriceFieldRef.current;
+
+      const tab: "basic" | "modifications" | "sales" =
+        nameInvalid || categoryInvalid ? "basic" : modifiersInvalid ? "modifications" : "sales";
+
+      flushSync(() => setActiveTab(tab));
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => scrollFieldIntoViewInAdminMain(scrollTarget));
+      });
+      return;
+    }
 
     const catIdx = Number(selectedCategoryIdx);
     const existingAddOns = isEdit && existingData ? existingData.item.addOns : undefined;
@@ -793,7 +831,7 @@ const NewItemPage = () => {
           </div>
 
           {/* Item Name */}
-          <div>
+          <div ref={itemNameFieldRef}>
             <label className="mb-1 block text-sm font-medium">{t("newItem.itemName")} <span className="text-destructive">*</span></label>
             <div className="relative">
               <Input placeholder={t("newItem.pleaseEnter")} maxLength={50} value={itemName} onChange={(e) => setItemName(e.target.value)} className={submitted && !itemName.trim() ? "border-destructive focus-visible:ring-destructive" : ""} />
@@ -856,7 +894,7 @@ const NewItemPage = () => {
           </div>
 
           {/* Store-defined Category */}
-          <div>
+          <div ref={categoryFieldRef}>
             <label className="mb-1 block text-sm font-medium">
               {t("newItem.storeDefinedCategory")} <span className="text-destructive">*</span>{" "}
               <TooltipProvider>
@@ -1337,7 +1375,7 @@ const NewItemPage = () => {
                       </div>
                     ) : null}
                   </div>
-                  <div>
+                  <div ref={deliveryPriceFieldRef}>
                     <label className="mb-1 block text-sm font-medium text-foreground">
                       {t("newItem.comboPriceAfterDiscount")} <span className="text-destructive">*</span>
                     </label>
@@ -1348,6 +1386,9 @@ const NewItemPage = () => {
                       suffix="R$"
                       invalid={submitted && !deliveryPrice.trim()}
                     />
+                    {submitted && !deliveryPrice.trim() ? (
+                      <p className="mt-1 text-xs text-destructive">{t("newItem.deliveryPriceRequired")}</p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1369,13 +1410,9 @@ const NewItemPage = () => {
                     </button>
                   </div>
                 </div>
-
-                {submitted && !deliveryPrice.trim() ? (
-                  <p className="text-xs text-destructive">{t("newItem.deliveryPriceRequired")}</p>
-                ) : null}
               </div>
             ) : (
-              <div className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
+              <div ref={deliveryPriceFieldRef} className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
                 <div className="mb-2">
                   <span className="text-[14px] font-semibold">{t("newItem.deliveryTitle")}</span>
                 </div>

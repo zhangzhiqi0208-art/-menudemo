@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AdminLayout from "@/components/AdminLayout";
@@ -10,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useMenu } from "@/contexts/MenuContext";
 import { toast } from "@/hooks/use-toast";
+import { scrollFieldIntoViewInAdminMain } from "@/lib/scrollFieldIntoView";
 
 const SubItemEditPage = () => {
   const navigate = useNavigate();
@@ -34,6 +36,7 @@ const SubItemEditPage = () => {
   const [stockCount, setStockCount] = useState("");
   const [status, setStatus] = useState(true);
   const [submitted, setSubmitted] = useState(false);
+  const nameFieldRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (subItem) {
@@ -51,8 +54,13 @@ const SubItemEditPage = () => {
   }, [subItem]);
 
   const handleSave = () => {
-    setSubmitted(true);
-    if (!name.trim()) return;
+    flushSync(() => setSubmitted(true));
+    if (!name.trim()) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => scrollFieldIntoViewInAdminMain(nameFieldRef.current));
+      });
+      return;
+    }
 
     if (!parentItem || group === undefined || subItem === undefined) return;
 
@@ -117,7 +125,7 @@ const SubItemEditPage = () => {
             {parentItem.title} → {group.name}
           </p>
 
-          <div>
+          <div ref={nameFieldRef}>
             <Label className="mb-1 block">
               {t("newItem.modifierName")} <span className="text-destructive">*</span>
             </Label>
