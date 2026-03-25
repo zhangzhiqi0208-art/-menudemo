@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import burgerJpg from "@/assets/系统内置/burger.jpg";
 import comboJpg from "@/assets/系统内置/combo.jpg";
 import icecreamPng from "@/assets/icecream.png";
+import uploadIconPng from "@/assets/上传图片.png";
+import checkedMarkPng from "@/assets/已勾选图片.png";
+import uncheckedMarkPng from "@/assets/未勾选图片.png";
 
 interface UploadedImage {
   file: File;
@@ -29,8 +32,6 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const checkedMarkSrc = "/src/assets/已勾选图片.png";
-  const uploadIconSrc = "/src/assets/上传图片.png";
 
   useEffect(() => {
     if (!open) return;
@@ -39,7 +40,20 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
       const file = new File([blob], name, { type: blob.type || type });
       return { file, url: URL.createObjectURL(blob), confirmed: false, zoom: 1, rotation: 0 } as UploadedImage;
     };
-    const loadBuiltIn = () =>
+    /** 生产环境无 /src/，必须用打包后的 URL；无 initial 时直接用资源 URL 展示，避免对大图重复 fetch */
+    const builtInFromImports = (): UploadedImage[] =>
+      BUILTIN_IMAGE_URLS.map((src) => {
+        const name = src.split("/").pop() || "image.jpg";
+        const isPng = /\.png$/i.test(name);
+        return {
+          file: new File([], name, { type: isPng ? "image/png" : "image/jpeg" }),
+          url: src,
+          confirmed: false,
+          zoom: 1,
+          rotation: 0,
+        };
+      });
+    const loadBuiltInFetched = () =>
       Promise.all(
         BUILTIN_IMAGE_URLS.map((src) =>
           fetch(src, { signal: ctrl.signal })
@@ -55,7 +69,13 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
           .catch(() => null)
       : Promise.resolve(null);
 
-    Promise.all([loadBuiltIn(), loadInitial]).then(([builtIn, initialResult]) => {
+    if (!initialImageUrl) {
+      setImages(builtInFromImports());
+      setActiveIndex(-1);
+      return () => ctrl.abort();
+    }
+
+    Promise.all([loadBuiltInFetched(), loadInitial]).then(([builtIn, initialResult]) => {
       if (!builtIn.length) {
         const initial = initialResult ? [initialResult.img] : [];
         setImages(initial);
@@ -81,7 +101,6 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
     });
     return () => ctrl.abort();
   }, [open, initialImageUrl]);
-  const uncheckedMarkSrc = "/src/assets/未勾选图片.png";
 
   const handleFilesSelect = (files: FileList) => {
     const validTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -132,7 +151,7 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
                 onClick={() => fileInputRef.current?.click()}
                 className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground font-medium px-6"
               >
-                <img src={uploadIconSrc} alt="" className="h-4 w-4 mr-2" />
+                <img src={uploadIconPng} alt="" className="h-4 w-4 mr-2" />
                 上传图片
               </Button>
             </div>
@@ -146,7 +165,7 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
                 >
                   <img src={img.url} alt="" className="h-full w-full object-cover" />
                   <img
-                    src={idx === activeIndex ? checkedMarkSrc : uncheckedMarkSrc}
+                    src={idx === activeIndex ? checkedMarkPng : uncheckedMarkPng}
                     alt=""
                     className="absolute right-2 top-2 h-5 w-5"
                   />

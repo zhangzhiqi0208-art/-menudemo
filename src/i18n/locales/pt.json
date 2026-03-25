@@ -6,6 +6,11 @@
     "pt": "Português (Brasil)",
     "menuAria": "Alterar idioma"
   },
+  "version": {
+    "menuAria": "Alternar versão do negócio",
+    "br": "BR",
+    "ssl": "SSL"
+  },
   "sidebar": {
     "overview": "Visão Geral",
     "analysis": "ANÁLISE",
@@ -113,6 +118,9 @@
     "comboPortionRange34": "3–4",
     "comboPortionRange58": "5–8",
     "comboPortionRange8plus": "8+",
+    "sslComboDeliveryTitle": "Preço de entrega do combo",
+    "sslComboSinglePriceLabel": "Preço de venda na entrega",
+    "sslComboPriceHint": "A versão SSL usa um fluxo simplificado: informe o preço de entrega pago pelo cliente. Não é necessário definir preço original ou percentual de desconto separadamente.",
     "comboDeliverySection": "Entrega",
     "comboSetOriginalPrice": "Definir preço original",
     "comboDiscount": "Desconto",
@@ -181,6 +189,7 @@
     "rangeMax": "Máximo do intervalo",
     "rangeMaxUnlimited": "Ilimitado",
     "rangeMaxInputPlaceholder": "Digite um inteiro maior que 1",
+    "pleaseLinkSubItems": "Nenhum subitem por enquanto",
     "modifierGroupPleaseAddDishes": "Adicione pratos",
     "submit": "Enviar",
     "save": "Salvar",
@@ -200,6 +209,13 @@
     "linkExistingGroupSelectedCount": "{{count}} grupo(s) selecionado(s)",
     "linkExistingGroupOk": "Confirmar",
     "linkExistingGroupNoResults": "Nenhum grupo correspondente",
+    "linkExistingSubItemsModalTitle": "Associar subitens",
+    "linkExistingSubItemsSearchPlaceholder": "Digite",
+    "linkExistingSubItemsNoResults": "Nenhum prato encontrado",
+    "linkExistingSubItemsHasModifiersWarning": "Não é possível adicionar itens que contenham grupos de modificadores",
+    "linkExistingSubItemsSelectedCount": "{{count}} modificador(es) selecionado(s)",
+    "linkExistingSubItemsPrevPage": "Página anterior",
+    "linkExistingSubItemsNextPage": "Próxima página",
     "expandGroup": "Expandir",
     "collapseGroup": "Recolher"
   },

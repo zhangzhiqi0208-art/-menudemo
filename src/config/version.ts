@@ -1,28 +1,10 @@
-export type AppVersion = "v1" | "v2";
+/** 业务版本：BR（巴西）与 SSL（简化套餐新建表单 + 橙色主题） */
+export type AppVersion = "br" | "ssl";
 
-export const VERSION_CONFIG: Record<
-  AppVersion,
-  {
-    themeKey: "v1" | "v2";
-    features: {
-      dishAdvancedPricing: boolean;
-      dishComboSupport: boolean;
-    };
-  }
-> = {
-  v1: {
-    themeKey: "v1",
-    features: {
-      dishAdvancedPricing: false,
-      dishComboSupport: false,
-    },
-  },
-  v2: {
-    themeKey: "v2",
-    features: {
-      dishAdvancedPricing: true,
-      dishComboSupport: true,
-    },
-  },
-};
+export const APP_VERSION_STORAGE_KEY = "appMarketVersion";
 
+export const DEFAULT_APP_VERSION: AppVersion = "br";
+
+export function isAppVersion(v: string | null | undefined): v is AppVersion {
+  return v === "br" || v === "ssl";
+}

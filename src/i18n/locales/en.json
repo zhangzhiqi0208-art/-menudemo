@@ -6,6 +6,11 @@
     "pt": "Portuguese (Brazil)",
     "menuAria": "Change language"
   },
+  "version": {
+    "menuAria": "Switch business version",
+    "br": "BR",
+    "ssl": "SSL"
+  },
   "sidebar": {
     "overview": "Overview",
     "analysis": "ANALYSIS",
@@ -113,6 +118,9 @@
     "comboPortionRange34": "3–4",
     "comboPortionRange58": "5–8",
     "comboPortionRange8plus": "8+",
+    "sslComboDeliveryTitle": "Combo delivery price",
+    "sslComboSinglePriceLabel": "Delivery selling price",
+    "sslComboPriceHint": "SSL uses a simplified flow: enter the delivery price customers pay. You do not need to set an original price or discount percentage separately.",
     "comboDeliverySection": "Delivery",
     "comboSetOriginalPrice": "Set original price",
     "comboDiscount": "Discount",
@@ -181,6 +189,7 @@
     "rangeMax": "Range maximum",
     "rangeMaxUnlimited": "Unlimited",
     "rangeMaxInputPlaceholder": "Enter an integer greater than 1",
+    "pleaseLinkSubItems": "No sub-items yet",
     "modifierGroupPleaseAddDishes": "Please add dishes",
     "submit": "Submit",
     "save": "Save",
@@ -200,6 +209,13 @@
     "linkExistingGroupSelectedCount": "{{count}} group(s) selected",
     "linkExistingGroupOk": "Confirm",
     "linkExistingGroupNoResults": "No matching option groups",
+    "linkExistingSubItemsModalTitle": "Associate sub-items",
+    "linkExistingSubItemsSearchPlaceholder": "Please enter",
+    "linkExistingSubItemsNoResults": "No dishes found",
+    "linkExistingSubItemsHasModifiersWarning": "You cannot add items that contain modifier groups",
+    "linkExistingSubItemsSelectedCount": "{{count}} modifier(s) has been selected",
+    "linkExistingSubItemsPrevPage": "Previous page",
+    "linkExistingSubItemsNextPage": "Next page",
     "expandGroup": "Expand",
     "collapseGroup": "Collapse"
   },

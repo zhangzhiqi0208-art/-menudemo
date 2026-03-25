@@ -50,6 +50,20 @@
     --success: 142 70% 45%;
     --info: 217 91% 60%;
   }
+
+  /* SSL：品牌色 #FF5F14（hsl 与 hex 对齐） */
+  :root[data-app-version="ssl"] {
+    --primary: 18.98 100% 53.92%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 18.98 100% 53.92%;
+    --accent-foreground: 0 0% 100%;
+    --ring: 18.98 100% 53.92%;
+    --sidebar-primary: 18.98 100% 53.92%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 19 90% 94%;
+    --sidebar-accent-foreground: 0 0% 13%;
+    --sidebar-ring: 18.98 100% 53.92%;
+  }
 }
 
 @layer base {

@@ -1,26 +1,56 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   type PropsWithChildren,
 } from "react";
-import { AppVersion, VERSION_CONFIG } from "@/config/version";
+import {
+  APP_VERSION_STORAGE_KEY,
+  DEFAULT_APP_VERSION,
+  isAppVersion,
+  type AppVersion,
+} from "@/config/version";
+
+function readStoredVersion(): AppVersion {
+  try {
+    const v = localStorage.getItem(APP_VERSION_STORAGE_KEY);
+    if (isAppVersion(v)) return v;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_APP_VERSION;
+}
 
 type VersionContextValue = {
   version: AppVersion;
   setVersion: (v: AppVersion) => void;
-  features: (typeof VERSION_CONFIG)[AppVersion]["features"];
 };
 
 const VersionContext = createContext<VersionContextValue | null>(null);
 
 export const VersionProvider = ({ children }: PropsWithChildren) => {
-  // 先默认使用 v1，后续可接入接口 / localStorage
-  const [version, setVersion] = useState<AppVersion>("v1");
-  const features = VERSION_CONFIG[version].features;
+  const [version, setVersionState] = useState<AppVersion>(readStoredVersion);
+
+  const setVersion = (v: AppVersion) => {
+    setVersionState(v);
+    try {
+      localStorage.setItem(APP_VERSION_STORAGE_KEY, v);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  useEffect(() => {
+    if (version === "ssl") {
+      document.documentElement.dataset.appVersion = "ssl";
+    } else {
+      delete document.documentElement.dataset.appVersion;
+    }
+  }, [version]);
 
   return (
-    <VersionContext.Provider value={{ version, setVersion, features }}>
+    <VersionContext.Provider value={{ version, setVersion }}>
       {children}
     </VersionContext.Provider>
   );
@@ -31,13 +61,3 @@ export const useVersion = () => {
   if (!ctx) throw new Error("useVersion must be used within VersionProvider");
   return ctx;
 };
-
-export const useFeatureFlag = <
-  K extends keyof VersionContextValue["features"],
->(
-  key: K,
-) => {
-  const { features } = useVersion();
-  return features[key];
-};
-

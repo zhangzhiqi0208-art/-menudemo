@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type ChangeEvent } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ChangeEvent } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
 import { LinkExistingOptionGroupsDialog } from "@/components/LinkExistingOptionGroupsDialog";
+import { LinkExistingDishesDialog, type LinkedDishPick } from "@/components/LinkExistingDishesDialog";
 import { PRESET_OPTION_GROUPS, type PresetOptionGroup } from "@/data/presetOptionGroups";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -51,6 +52,7 @@ import {
 } from "@/domains/dishes/model/menuItemMappers";
 import { cn } from "@/lib/utils";
 import { scrollFieldIntoViewInAdminMain } from "@/lib/scrollFieldIntoView";
+import { useVersion } from "@/app/providers/VersionProvider";
 
 const COMBO_PORTION_OPTIONS: { id: ComboPortion; labelKey: string; rangeKey: string }[] = [
   { id: "single", labelKey: "newItem.comboPortionSingle", rangeKey: "newItem.comboPortionRange1" },
@@ -295,12 +297,17 @@ const NewItemPage = () => {
   const existingData = isEdit ? getItemById(itemId) : null;
   /** 已保存菜品再次编辑时不允许改类型（单品/套餐） */
   const itemTypeLocked = isEdit && existingData !== null;
+  const { version } = useVersion();
 
   const fromCategory = (location.state as { fromCategory?: number })?.fromCategory;
   const initialCategory =
     typeof fromCategory === "number" && fromCategory >= 0 ? String(fromCategory) : "";
 
   const [itemType, setItemType] = useState<"items" | "combo">("items");
+  /** SSL 且为新建套餐时：份量与定价区块使用简化表单 */
+  const sslNewComboForm = version === "ssl" && !isEdit && itemType === "combo";
+  /** BR：选项组「添加选项组」及卡片内/下拉中的文字操作按钮与图标 */
+  const brOptionGroupActionClass = version === "br" ? "text-[#FF8C19]" : "text-primary";
   const [comboPortion, setComboPortion] = useState<ComboPortion>("single");
   const [comboOriginalPrice, setComboOriginalPrice] = useState("");
   const [comboDiscountPercent, setComboDiscountPercent] = useState("");
@@ -392,6 +399,35 @@ const NewItemPage = () => {
   }
 
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
+  const [linkExistingDishesOpen, setLinkExistingDishesOpen] = useState(false);
+  const [linkExistingDishesGroupId, setLinkExistingDishesGroupId] = useState<string | null>(null);
+
+  const linkExistingDishesNameSet = useMemo(() => {
+    if (!linkExistingDishesGroupId) return new Set<string>();
+    const g = modifierGroups.find((x) => x.id === linkExistingDishesGroupId);
+    return new Set((g?.items ?? []).map((i) => i.name.trim().toLowerCase()).filter(Boolean));
+  }, [linkExistingDishesGroupId, modifierGroups]);
+
+  const handleLinkExistingDishesConfirm = useCallback((picks: LinkedDishPick[]) => {
+    if (!linkExistingDishesGroupId || picks.length === 0) return;
+    setModifierGroups((prev) =>
+      prev.map((g) =>
+        g.id === linkExistingDishesGroupId
+          ? {
+              ...g,
+              items: [
+                ...g.items,
+                ...picks.map((p) => ({
+                  name: p.name,
+                  price: p.price,
+                  maxQty: "unlimited",
+                })),
+              ],
+            }
+          : g,
+      ),
+    );
+  }, [linkExistingDishesGroupId]);
 
   const addNewModifierGroup = () => {
     setModifierGroups((prev) => [
@@ -660,8 +696,8 @@ const NewItemPage = () => {
     const payload = buildMenuItemPayload({
       itemType,
       comboPortion,
-      comboOriginalPrice,
-      comboDiscountPercent,
+      comboOriginalPrice: sslNewComboForm ? deliveryPrice.trim() : comboOriginalPrice,
+      comboDiscountPercent: sslNewComboForm ? "0" : comboDiscountPercent,
       itemName,
       pdvCode,
       description,
@@ -926,32 +962,50 @@ const NewItemPage = () => {
           {itemType === "combo" ? (
             <div>
               <label className="mb-2 block text-sm font-medium">{t("newItem.comboPortionPrompt")}</label>
-              <RadioGroup
-                value={comboPortion}
-                onValueChange={(v) => setComboPortion(v as ComboPortion)}
-                className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
-              >
-                {COMBO_PORTION_OPTIONS.map((op) => (
-                  <div
-                    key={op.id}
-                    role="presentation"
-                    onClick={() => setComboPortion(op.id)}
-                    className={cn(
-                      "relative flex min-h-[92px] cursor-pointer flex-col justify-start rounded-lg border bg-secondary/50 p-3 pt-3.5 text-left transition-colors",
-                      comboPortion === op.id ? "border-foreground" : "border-border hover:border-muted-foreground",
-                    )}
-                  >
-                    <RadioGroupItem value={op.id} id={`combo-portion-${op.id}`} className="absolute right-2.5 top-2.5 shrink-0" />
-                    <Label
-                      htmlFor={`combo-portion-${op.id}`}
-                      className="min-w-0 cursor-pointer pr-7 font-normal"
+              {sslNewComboForm ? (
+                <Select
+                  value={comboPortion}
+                  onValueChange={(v) => setComboPortion(v as ComboPortion)}
+                >
+                  <SelectTrigger className="w-full max-w-md">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMBO_PORTION_OPTIONS.map((op) => (
+                      <SelectItem key={op.id} value={op.id}>
+                        {t(op.labelKey)}（{t(op.rangeKey)}）
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <RadioGroup
+                  value={comboPortion}
+                  onValueChange={(v) => setComboPortion(v as ComboPortion)}
+                  className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+                >
+                  {COMBO_PORTION_OPTIONS.map((op) => (
+                    <div
+                      key={op.id}
+                      role="presentation"
+                      onClick={() => setComboPortion(op.id)}
+                      className={cn(
+                        "relative flex min-h-[92px] cursor-pointer flex-col justify-start rounded-lg border bg-secondary/50 p-3 pt-3.5 text-left transition-colors",
+                        comboPortion === op.id ? "border-foreground" : "border-border hover:border-muted-foreground",
+                      )}
                     >
-                      <span className="block text-sm font-semibold leading-snug">{t(op.labelKey)}</span>
-                      <span className="mt-1 block text-xs text-muted-foreground">{t(op.rangeKey)}</span>
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
+                      <RadioGroupItem value={op.id} id={`combo-portion-${op.id}`} className="absolute right-2.5 top-2.5 shrink-0" />
+                      <Label
+                        htmlFor={`combo-portion-${op.id}`}
+                        className="min-w-0 cursor-pointer pr-7 font-normal"
+                      >
+                        <span className="block text-sm font-semibold leading-snug">{t(op.labelKey)}</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">{t(op.rangeKey)}</span>
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              )}
             </div>
           ) : null}
 
@@ -1224,13 +1278,26 @@ const NewItemPage = () => {
 
                       {/* Bottom actions */}
                       <div className="grid grid-cols-2 rounded-lg border border-border overflow-hidden">
-                        <button className="flex items-center justify-center gap-2 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors border-r border-border">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLinkExistingDishesGroupId(group.id);
+                            setLinkExistingDishesOpen(true);
+                          }}
+                          className={cn(
+                            "flex items-center justify-center gap-2 py-3 text-sm font-medium hover:bg-secondary transition-colors border-r border-border",
+                            brOptionGroupActionClass,
+                          )}
+                        >
                           <Link2 className="h-4 w-4" />
                           {t("newItem.linkExistingModifier")}
                         </button>
                         <button
                           onClick={() => openNewModifierDialog(group.id)}
-                          className="flex items-center justify-center gap-2 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors"
+                          className={cn(
+                            "flex items-center justify-center gap-2 py-3 text-sm font-medium hover:bg-secondary transition-colors",
+                            brOptionGroupActionClass,
+                          )}
                         >
                           <Plus className="h-4 w-4" />
                           {t("newItem.createNewModifier")}
@@ -1258,14 +1325,20 @@ const NewItemPage = () => {
 
             {/* Add group button with hover dropdown */}
             <div className="relative group">
-              <Button variant="outline" className="w-full gap-1">
+              <Button
+                variant="outline"
+                className={cn("w-full gap-1", version === "br" && "text-[#212121] hover:text-[#212121]")}
+              >
                 <Plus className="h-4 w-4" />
                 {t("newItem.addGroup")}
               </Button>
               <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-200 absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-border bg-card shadow-lg p-2 space-y-1">
                 <button
                   onClick={addNewModifierGroup}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors"
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
+                    brOptionGroupActionClass,
+                  )}
                 >
                   <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
                     <Plus className="h-4 w-4" strokeWidth={2.25} />
@@ -1275,14 +1348,23 @@ const NewItemPage = () => {
                 <button
                   type="button"
                   onClick={() => setLinkExistingGroupsDialogOpen(true)}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors"
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
+                    brOptionGroupActionClass,
+                  )}
                 >
                   <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
                     <Link2 className="h-4 w-4" strokeWidth={2.25} />
                   </span>
                   {t("newItem.selectExistingGroup")}
                 </button>
-                <button className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium text-[hsl(30,100%,50%)] hover:bg-secondary transition-colors">
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
+                    brOptionGroupActionClass,
+                  )}
+                >
                   <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
                     <Copy className="h-4 w-4" strokeWidth={2.25} />
                   </span>
@@ -1300,6 +1382,40 @@ const NewItemPage = () => {
             <label className="mb-1 block text-sm font-medium">{t("newItem.price")} <span className="text-destructive">*</span></label>
 
             {itemType === "combo" ? (
+              sslNewComboForm ? (
+                <div className="mb-3 space-y-4 rounded-lg bg-[#F9F9FC] p-4">
+                  <h3 className="text-[14px] font-semibold text-foreground">
+                    {t("newItem.sslComboDeliveryTitle")}
+                  </h3>
+                  <div ref={deliveryPriceFieldRef}>
+                    <label className="mb-1 block text-sm font-medium text-foreground">
+                      {t("newItem.sslComboSinglePriceLabel")}{" "}
+                      <span className="text-destructive">*</span>
+                    </label>
+                    <SuffixInput
+                      value={deliveryPrice}
+                      onChange={(e) => setDeliveryPrice(e.target.value)}
+                      placeholder={t("newItem.comboPricePlaceholder")}
+                      suffix="R$"
+                      invalid={submitted && !deliveryPrice.trim()}
+                    />
+                    {submitted && !deliveryPrice.trim() ? (
+                      <p className="mt-1 text-xs text-destructive">{t("newItem.deliveryPriceRequired")}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-3 rounded-lg bg-[#EFEFF2] p-3 text-sm">
+                    <span
+                      className="flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full bg-white text-muted-foreground shadow-sm"
+                      aria-hidden
+                    >
+                      <Info className="h-3 w-3" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="leading-snug text-foreground">{t("newItem.sslComboPriceHint")}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <div className="mb-3 space-y-4 rounded-lg bg-[#F9F9FC] p-4">
                 <h3 className="text-[14px] font-semibold text-foreground">{t("newItem.comboDeliverySection")}</h3>
 
@@ -1405,6 +1521,7 @@ const NewItemPage = () => {
                   </div>
                 </div>
               </div>
+              )
             ) : (
               <div ref={deliveryPriceFieldRef} className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
                 <div className="mb-2">
@@ -1659,6 +1776,17 @@ const NewItemPage = () => {
         onOpenChange={setLinkExistingGroupsDialogOpen}
         groups={PRESET_OPTION_GROUPS}
         onConfirm={handleLinkExistingGroupsConfirm}
+      />
+
+      <LinkExistingDishesDialog
+        open={linkExistingDishesOpen}
+        onOpenChange={(open) => {
+          setLinkExistingDishesOpen(open);
+          if (!open) setLinkExistingDishesGroupId(null);
+        }}
+        excludeItemId={itemId}
+        existingNamesLower={linkExistingDishesNameSet}
+        onConfirm={handleLinkExistingDishesConfirm}
       />
 
       <AlertDialog open={!!deleteGroupId} onOpenChange={(open) => !open && setDeleteGroupId(null)}>
