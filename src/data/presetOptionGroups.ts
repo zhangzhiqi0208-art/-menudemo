@@ -17,6 +17,13 @@ export type PresetOptionGroup = {
 
 export const PRESET_OPTION_GROUPS: PresetOptionGroup[] = [
   {
+    id: "preset-burger",
+    title: "汉堡",
+    min: 1,
+    max: 1,
+    modifiers: [{ name: "清新菠萝鸡肉汉堡", price: "0.00" }],
+  },
+  {
     id: "preset-snacks",
     title: "小吃",
     min: 1,

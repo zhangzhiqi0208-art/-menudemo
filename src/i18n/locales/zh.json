@@ -202,6 +202,8 @@
     "linkExistingGroupModalTitle": "关联已有选项组",
     "linkExistingGroupSearchPlaceholder": "请输入",
     "linkExistingGroupSummaryLine": "{{count}} 个子项；可选 {{min}} - {{max}}",
+    "linkExistingGroupSummaryLineOptional": "{{count}} 个子项；可选 {{min}} - {{max}}",
+    "linkExistingGroupSummaryLineRequired": "{{count}} 个子项；必选 {{min}} - {{max}}",
     "linkExistingGroupSelectedCount": "已选择 {{count}} 个选项组",
     "linkExistingGroupOk": "确认",
     "linkExistingGroupNoResults": "暂无匹配选项组",

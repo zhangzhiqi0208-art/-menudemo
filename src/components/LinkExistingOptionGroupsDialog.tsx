@@ -86,7 +86,11 @@ export function LinkExistingOptionGroupsDialog({
             groups.map((g) => {
               const expanded = expandedIds.has(g.id);
               const checked = selectedIds.has(g.id);
-              const summary = t("newItem.linkExistingGroupSummaryLine", {
+              const summaryKey =
+                g.min > 0
+                  ? "newItem.linkExistingGroupSummaryLineRequired"
+                  : "newItem.linkExistingGroupSummaryLineOptional";
+              const summary = t(summaryKey, {
                 count: g.modifiers.length,
                 min: g.min,
                 max: g.max,
@@ -94,7 +98,7 @@ export function LinkExistingOptionGroupsDialog({
 
               return (
                 <div key={g.id} className="border-b border-[#ECECEF] last:border-b-0">
-                  <div className="flex items-stretch gap-3 px-6 py-4">
+                  <div className="flex items-stretch gap-3 px-6 pb-4 pt-4">
                     <label className="flex shrink-0 cursor-pointer items-start pt-0.5">
                       <input
                         type="checkbox"
@@ -103,41 +107,48 @@ export function LinkExistingOptionGroupsDialog({
                         className="h-5 w-5 rounded border border-[#BABABF] text-white accent-black checked:border-black checked:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
                       />
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => toggleExpanded(g.id)}
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <div className="text-sm font-bold text-foreground">{g.title}</div>
-                      <div className="mt-1 text-xs text-[#8E8E93]">{summary}</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleExpanded(g.id)}
-                      className="flex shrink-0 items-start pt-0.5 text-[#8E8E93] hover:text-foreground"
-                      aria-expanded={expanded}
-                      aria-label={expanded ? t("newItem.collapseGroup") : t("newItem.expandGroup")}
-                    >
-                      <ChevronDown
-                        className={cn("h-5 w-5 transition-transform duration-200", expanded && "rotate-180")}
-                      />
-                    </button>
-                  </div>
-                  {expanded && g.modifiers.length > 0 && (
-                    <div className="mx-6 mb-4 space-y-0 overflow-hidden rounded-lg bg-[#F2F3F5] px-4 py-2">
-                      {g.modifiers.map((m, idx) => (
-                        <div
-                          key={`${g.id}-${idx}`}
-                          className="flex items-center justify-between gap-4 border-b border-[#E4E5E8] py-2.5 text-sm last:border-b-0"
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(g.id)}
+                          className="min-w-0 flex-1 text-left"
                         >
-                          <span className="min-w-0 font-medium text-foreground">{m.name}</span>
-                          <span className="shrink-0 tabular-nums text-[#8E8E93]">
-                            {normalizePriceDisplay(m.price)}
-                          </span>
+                          <div className="text-sm font-bold text-foreground">{g.title}</div>
+                          <div className="mt-1 text-xs text-[#8E8E93]">{summary}</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(g.id)}
+                          className="flex shrink-0 items-start pt-0.5 text-[#8E8E93] hover:text-foreground"
+                          aria-expanded={expanded}
+                          aria-label={expanded ? t("newItem.collapseGroup") : t("newItem.expandGroup")}
+                        >
+                          <ChevronDown
+                            className={cn(
+                              "h-5 w-5 transition-transform duration-200",
+                              expanded && "rotate-180",
+                            )}
+                          />
+                        </button>
+                      </div>
+                      {expanded && g.modifiers.length > 0 && (
+                        <div className="mt-2 space-y-0 overflow-hidden rounded-lg bg-[#F2F3F5] py-2 pl-0 pr-3">
+                          {g.modifiers.map((m, idx) => (
+                            <div
+                              key={`${g.id}-${idx}`}
+                              className="flex items-center justify-between gap-4 border-b border-[#E4E5E8] py-2.5 pl-0 pr-1 text-sm last:border-b-0"
+                            >
+                              <span className="min-w-0 font-medium text-foreground">{m.name}</span>
+                              <span className="shrink-0 tabular-nums text-[#8E8E93]">
+                                {normalizePriceDisplay(m.price)}
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })

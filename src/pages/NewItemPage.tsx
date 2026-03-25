@@ -356,21 +356,17 @@ const NewItemPage = () => {
     }
   }, [itemId]);
 
-  /** 新建等可切换类型时：单品外卖价 → 切到套餐后写入设定原价，并按已有折扣重算折后价 */
+  /** 新建等可切换类型时：单品外卖价 → 切到套餐后写入设定原价；折后价不自动填充，由用户填写 */
   useEffect(() => {
     if (!itemTypeLocked && prevItemTypeRef.current === "items" && itemType === "combo") {
       const d = deliveryPrice.trim();
       if (d) {
         setComboOriginalPrice(d);
-        const o = parseLocaleNumber(d);
-        const disc = parseLocaleNumber(comboDiscountPercent);
-        if (Number.isFinite(o) && o >= 0 && Number.isFinite(disc) && disc >= 0 && disc <= 100) {
-          setDeliveryPrice(formatMoneyForCombo(o * (1 - disc / 100)));
-        }
       }
+      setDeliveryPrice("");
     }
     prevItemTypeRef.current = itemType;
-  }, [itemType, itemTypeLocked, deliveryPrice, comboDiscountPercent]);
+  }, [itemType, itemTypeLocked]);
 
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [dragItem, setDragItem] = useState<{ groupId: string; idx: number } | null>(null);

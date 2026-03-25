@@ -71,7 +71,6 @@ import {
   BUILTIN_BURGER_CATEGORY_LOCALE_KEY,
   displayAddonGroupName,
   displayAddonItemName,
-  displayAddonItemWarning,
   displayCategoryName,
   displayItemTitle,
   displayLinkedMenuName,
@@ -1133,8 +1132,8 @@ const DishesListPage = () => {
             {batchMode && (
               <div className="mb-2 flex items-center gap-2 rounded-lg px-4 py-2" style={{ backgroundColor: "#F9F9F9" }}>
                 <span
-                  className="text-base font-semibold"
-                  style={{ color: hasSelection ? "hsl(50, 100%, 50%)" : undefined }}
+                  className={cn("text-sm", !hasSelection && "text-black")}
+                  style={hasSelection ? { color: "#CCB100" } : undefined}
                 >
                   {t("menuList.totalSelected")} {totalSelected}
                 </span>
@@ -1209,8 +1208,8 @@ const DishesListPage = () => {
             )}
 
             {batchMode ? (
-              <div className="grid grid-cols-[32px_1fr_160px_auto] items-center gap-6 px-4 pb-2 text-xs text-muted-foreground">
-                <div className="flex items-center justify-center">
+              <div className="grid grid-cols-[16px_1fr_160px_auto] items-center gap-x-4 gap-y-0 px-4 pb-2 text-xs text-muted-foreground">
+                <div className="flex w-4 shrink-0 items-center justify-center">
                   <Checkbox
                     checked={
                       (categoryItems[selectedCategory] || []).length > 0 &&
@@ -1276,14 +1275,14 @@ const DishesListPage = () => {
                     row.type === "main" ? (
                     <div key={row.item.id}>
                       <div
-                        className={`grid items-center gap-6 px-4 py-3 ${
+                        className={`grid items-center px-4 py-3 ${
                           batchMode
-                            ? "grid-cols-[32px_1fr_160px_auto]"
-                            : "grid-cols-[1fr_160px_auto]"
+                            ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
+                            : "grid-cols-[1fr_160px_auto] gap-6"
                         }`}
                       >
                         {batchMode && (
-                          <div className="flex items-center justify-center">
+                          <div className="flex w-4 shrink-0 items-center justify-center">
                             <Checkbox
                               checked={selectedItems.has(row.item.id)}
                               onCheckedChange={() =>
@@ -1499,14 +1498,14 @@ const DishesListPage = () => {
                                 }
                               >
                                 <div
-                                  className={`grid items-center gap-6 px-4 pt-2 pb-1 ${
+                                  className={`grid items-center px-4 pt-2 pb-1 ${
                                     batchMode
-                                      ? "grid-cols-[32px_1fr_160px_auto]"
-                                      : "grid-cols-[1fr_160px_auto]"
+                                      ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
+                                      : "grid-cols-[1fr_160px_auto] gap-6"
                                   }`}
                                 >
                                   {batchMode && (
-                                    <div className="flex w-8 shrink-0 items-center justify-center" aria-hidden />
+                                    <div className="flex w-4 shrink-0 items-center justify-center" aria-hidden />
                                   )}
                                   <div className="flex min-w-0 items-center gap-3">
                                     <div
@@ -1530,16 +1529,16 @@ const DishesListPage = () => {
                                 {group.items.map((sub, si) => (
                                   <div key={si}>
                                     <div
-                                      className={`grid items-center gap-6 px-4 py-[2px] ${
+                                      className={`grid items-center px-4 py-[2px] ${
                                         batchMode
-                                          ? "grid-cols-[32px_1fr_160px_auto]"
-                                          : "grid-cols-[1fr_160px_auto]"
+                                          ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
+                                          : "grid-cols-[1fr_160px_auto] gap-6"
                                       } ${
                                         !sub.status ? "text-muted-foreground/50" : ""
                                       }`}
                                     >
                                       {batchMode && (
-                                        <div className="flex w-8 shrink-0 items-center justify-center" aria-hidden />
+                                        <div className="flex w-4 shrink-0 items-center justify-center" aria-hidden />
                                       )}
                                       <div className="flex min-w-0 items-center gap-3">
                                         <div className="h-6 w-12 shrink-0" aria-hidden />
@@ -1600,25 +1599,6 @@ const DishesListPage = () => {
                                         </button>
                                       </div>
                                     </div>
-                                    {sub.localeWarningKey ===
-                                      "builtin.warnings.prohibitedWords" && (
-                                        <div className="flex gap-6 px-4 pb-1">
-                                          {batchMode && (
-                                            <div className="w-8 shrink-0" aria-hidden />
-                                          )}
-                                          <div className="flex min-w-0 flex-1 items-start gap-3">
-                                            <div className="h-6 w-12 shrink-0" aria-hidden />
-                                            <p className="text-xs text-destructive">
-                                              ⛔{" "}
-                                              {displayAddonItemWarning(sub, t) ??
-                                                sub.warning}{" "}
-                                              <span className="cursor-pointer text-primary-foreground underline">
-                                                Go and view details ›
-                                              </span>
-                                            </p>
-                                          </div>
-                                        </div>
-                                      )}
                                   </div>
                                 ))}
                               </div>
@@ -1632,14 +1612,14 @@ const DishesListPage = () => {
                       className="border-t border-border bg-secondary/30"
                     >
                       <div
-                        className={`grid items-center gap-6 px-4 pt-2 pb-1 ${
+                        className={`grid items-center px-4 pt-2 pb-1 ${
                           batchMode
-                            ? "grid-cols-[32px_1fr_160px_auto]"
-                            : "grid-cols-[1fr_160px_auto]"
+                            ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
+                            : "grid-cols-[1fr_160px_auto] gap-6"
                         }`}
                       >
                         {batchMode && (
-                          <div className="flex w-8 shrink-0 items-center justify-center" aria-hidden />
+                          <div className="flex w-4 shrink-0 items-center justify-center" aria-hidden />
                         )}
                         <div className="flex min-w-0 items-center gap-3">
                           <div
@@ -1664,13 +1644,15 @@ const DishesListPage = () => {
                   ) : (
                     <div
                       key={`sub-${row.parentItem.id}-${row.groupIdx}-${row.subIdx}`}
-                      className={`grid items-center gap-6 px-4 py-[2px] ${
+                      className={`grid items-center px-4 py-[2px] ${
                         batchMode
-                          ? "grid-cols-[32px_1fr_160px_auto]"
-                          : "grid-cols-[1fr_160px_auto]"
+                          ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
+                          : "grid-cols-[1fr_160px_auto] gap-6"
                       }`}
                     >
-                      {batchMode && <div className="flex items-center justify-center" />}
+                      {batchMode && (
+                        <div className="flex w-4 shrink-0 items-center justify-center" aria-hidden />
+                      )}
                       <div className="flex items-center gap-3 min-w-0 pl-0">
                         <div className="flex h-6 w-12 shrink-0 items-center justify-center" aria-hidden>
                           <span className="w-12" />

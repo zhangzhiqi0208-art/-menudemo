@@ -195,6 +195,8 @@
     "linkExistingGroupModalTitle": "Link existing option groups",
     "linkExistingGroupSearchPlaceholder": "Please enter",
     "linkExistingGroupSummaryLine": "{{count}} modifier(s); select {{min}} - {{max}}",
+    "linkExistingGroupSummaryLineOptional": "{{count}} modifier(s); optional {{min}} - {{max}}",
+    "linkExistingGroupSummaryLineRequired": "{{count}} modifier(s); required {{min}} - {{max}}",
     "linkExistingGroupSelectedCount": "{{count}} group(s) selected",
     "linkExistingGroupOk": "Confirm",
     "linkExistingGroupNoResults": "No matching option groups",
