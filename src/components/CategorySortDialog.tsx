@@ -99,7 +99,7 @@ export const CategorySortDialog = ({
               onDragEnter={() => handleDragEnter(idx)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => e.preventDefault()}
-              className={`flex items-center justify-between py-3 border-b border-border last:border-b-0 select-none transition-colors ${
+              className={`flex items-center justify-between px-3 py-3 border-b border-border last:border-b-0 select-none transition-colors ${
                 draggingIdx === idx
                   ? "opacity-50 bg-secondary"
                   : "bg-background"

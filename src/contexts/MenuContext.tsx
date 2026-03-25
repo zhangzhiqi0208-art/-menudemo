@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from "react";
+import { BUILTIN_MENU_IMAGE_BY_ITEM_ID } from "./builtinMenuImages";
 
 export interface AddOnItem {
   name: string;
@@ -58,7 +59,8 @@ const initialCategories: Category[] = [
   { name: "🐮每日限量菜品～售完即止", count: 1 },
   { name: "🧑‍🍳独家原创", count: 2 },
   { name: "🍗小食饮料", count: 9 },
-  { name: "🥬加料专区", count: 1 },
+  { name: "🥬加料专区", count: 3 },
+  { name: "🍦冰淇淋", count: 3 },
 ];
 
 const initialItemsByCategory: Record<number, MenuItem[]> = {
@@ -105,12 +107,12 @@ const initialItemsByCategory: Record<number, MenuItem[]> = {
   ],
   // 2: 🐮每日限量菜品～售完即止
   2: [
-    { id: "2-1", title: "圣诞特别版松露汉堡", image: "🎄", tags: [], deliveryPrice: "R$59.90", pickupPrice: "R$49.90", stock: "50", status: true, addOns: [] },
+    { id: "2-1", title: "3月特供鸡腿肉盖饭", image: "🎄", tags: [], deliveryPrice: "R$59.90", pickupPrice: "R$49.90", stock: "50", status: true, addOns: [] },
   ],
   // 3: 🧑‍🍳独家原创
   3: [
-    { id: "3-1", title: "N! 原创汉堡 200g", image: "🍔", tags: [], deliveryPrice: "R$34.90", pickupPrice: "R$30.90", stock: "Unlimited", status: true, addOns: [] },
-    { id: "3-2", title: "N! 秘制酱料汉堡", image: "🍔", tags: [], deliveryPrice: "R$39.90", pickupPrice: "R$35.90", stock: "350", status: true, addOns: [] },
+    { id: "3-1", title: "N！原创塔可", image: "🍔", tags: [], deliveryPrice: "R$34.90", pickupPrice: "R$30.90", stock: "Unlimited", status: true, addOns: [] },
+    { id: "3-2", title: "N！秘制肉酱薄饼", image: "🍔", tags: [], deliveryPrice: "R$39.90", pickupPrice: "R$35.90", stock: "350", status: true, addOns: [] },
   ],
   // 4: 🍗小食饮料
   4: [
@@ -126,13 +128,33 @@ const initialItemsByCategory: Record<number, MenuItem[]> = {
   ],
   // 5: 🥬加料专区
   5: [
-    { id: "5-1", title: "布朗尼配香草冰淇淋", image: "🍫", tags: [], deliveryPrice: "R$18.90", pickupPrice: "R$15.90", stock: "150", status: true, addOns: [] },
+    { id: "5-1", title: "生菜", image: "🥬", tags: [], deliveryPrice: "R$4.00", pickupPrice: "R$3.00", stock: "Unlimited", status: true, addOns: [] },
+    { id: "5-2", title: "洋葱", image: "🧅", tags: [], deliveryPrice: "R$4.00", pickupPrice: "R$3.00", stock: "Unlimited", status: true, addOns: [] },
+    { id: "5-3", title: "酸黄瓜", image: "🥒", tags: [], deliveryPrice: "R$4.00", pickupPrice: "R$3.00", stock: "Unlimited", status: true, addOns: [] },
+  ],
+  // 6: 🍦冰淇淋
+  6: [
+    { id: "6-1", title: "香草冰淇淋", image: "🍦", tags: [], deliveryPrice: "R$12.90", pickupPrice: "R$10.90", stock: "Unlimited", status: true, addOns: [] },
+    { id: "6-2", title: "草莓冰淇淋", image: "🍦", tags: [], deliveryPrice: "R$12.90", pickupPrice: "R$10.90", stock: "Unlimited", status: true, addOns: [] },
+    { id: "6-3", title: "巧克力冰淇淋", image: "🍦", tags: [], deliveryPrice: "R$12.90", pickupPrice: "R$10.90", stock: "Unlimited", status: true, addOns: [] },
   ],
 };
 
 /**
  * 子菜 name 与某顶层菜品 title 相同时，以顶层菜品（独立菜）的 status 为准校正套餐内子项，避免初始数据不一致。
  */
+function applyBuiltinMenuImages(items: Record<number, MenuItem[]>): Record<number, MenuItem[]> {
+  const next: Record<number, MenuItem[]> = {};
+  for (const key of Object.keys(items)) {
+    const idx = Number(key);
+    next[idx] = (items[idx] || []).map((item) => ({
+      ...item,
+      image: BUILTIN_MENU_IMAGE_BY_ITEM_ID[item.id] ?? "",
+    }));
+  }
+  return next;
+}
+
 function normalizeLinkedSubStatusesToStandalone(
   items: Record<number, MenuItem[]>,
 ): Record<number, MenuItem[]> {
@@ -187,7 +209,7 @@ export const useMenu = () => {
 export const MenuProvider = ({ children }: { children: ReactNode }) => {
   const [categories, setCategories] = useState<Category[]>(initialCategories);
   const [categoryItems, setCategoryItems] = useState<Record<number, MenuItem[]>>(() =>
-    normalizeLinkedSubStatusesToStandalone(initialItemsByCategory),
+    normalizeLinkedSubStatusesToStandalone(applyBuiltinMenuImages(initialItemsByCategory)),
   );
 
   const addItem = (categoryIndex: number, item: MenuItem) => {

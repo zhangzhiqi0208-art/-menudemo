@@ -25,3 +25,6 @@ dist-ssr
 
 # 合并时使用的临时克隆，勿提交
 lovable-source-temp/
+
+# 本地临时对比文件
+tmp/

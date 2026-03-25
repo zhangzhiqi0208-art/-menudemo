@@ -14,6 +14,11 @@ interface SortItem {
   image: string;
 }
 
+function isItemImageUrl(image: unknown): boolean {
+  if (typeof image !== "string") return false;
+  return /^(https?|blob|data):/.test(image) || (image.includes("/") && image.length > 4);
+}
+
 interface ItemSortDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -110,15 +115,23 @@ export const ItemSortDialog = ({
               onDragEnter={() => handleDragEnter(idx)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => e.preventDefault()}
-              className={`flex items-center justify-between py-3 border-b border-border last:border-b-0 select-none transition-colors ${
+              className={`flex items-center justify-between px-3 py-3 border-b border-border last:border-b-0 select-none transition-colors ${
                 draggingIdx === idx
                   ? "opacity-50 bg-secondary"
                   : "bg-background"
               }`}
             >
               <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-xl">
-                  {item.image}
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary text-xl">
+                  {isItemImageUrl(item.image) ? (
+                    <img
+                      src={item.image}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : item.image ? (
+                    <span className="leading-none">{item.image}</span>
+                  ) : null}
                 </div>
                 <span className="text-sm truncate">{item.title}</span>
               </div>

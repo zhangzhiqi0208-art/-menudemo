@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import burgerJpg from "@/assets/系统内置/burger.jpg";
 import comboJpg from "@/assets/系统内置/combo.jpg";
+import icecreamPng from "@/assets/icecream.png";
 
 interface UploadedImage {
   file: File;
@@ -21,7 +22,7 @@ interface ImageUploadDialogProps {
   initialImageUrl?: string;
 }
 
-const BUILTIN_IMAGE_URLS = [burgerJpg, comboJpg];
+const BUILTIN_IMAGE_URLS = [burgerJpg, comboJpg, icecreamPng];
 
 const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUrl }: ImageUploadDialogProps) => {
   const { t } = useTranslation();

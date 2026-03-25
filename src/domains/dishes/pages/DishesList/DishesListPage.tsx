@@ -927,7 +927,7 @@ const DishesListPage = () => {
             <img
               src={emptyMenuImage}
               alt="Empty menu"
-              className="mb-6 h-32 w-32 object-contain"
+              className="h-32 w-32 object-contain"
             />
             <p className="mb-4 text-base font-semibold text-foreground">
               暂无搜索结果
@@ -938,7 +938,7 @@ const DishesListPage = () => {
             <img
               src={emptyMenuImage}
               alt="Empty menu"
-              className="mb-6 h-32 w-32 object-contain"
+              className="h-32 w-32 object-contain"
             />
             <p className="mb-4 text-base font-semibold text-foreground">
               暂无符合筛选条件的菜品
@@ -998,7 +998,7 @@ const DishesListPage = () => {
                     onClick={() => setSelectedCategory(idx)}
                     className={`group relative flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer ${
                       selectedCategory === idx
-                        ? "bg-foreground font-semibold text-card"
+                        ? "bg-[#F2F2F5] font-semibold text-foreground"
                         : "text-foreground hover:bg-secondary"
                     }`}
                   >
@@ -1007,11 +1007,7 @@ const DishesListPage = () => {
                       className="flex-1 min-w-0 mr-2"
                     />
                     <span
-                      className={`text-xs shrink-0 text-right transition-all group-hover:mr-7 ${
-                        selectedCategory === idx
-                          ? "text-card/70"
-                          : "text-muted-foreground"
-                      }`}
+                      className="text-xs shrink-0 text-right text-muted-foreground transition-all group-hover:mr-7"
                     >
                       {batchMode
                         ? selectedCount > 0
@@ -1026,16 +1022,12 @@ const DishesListPage = () => {
                             onClick={(e) => e.stopPropagation()}
                             className={`absolute right-2 rounded p-1 opacity-0 group-hover:opacity-100 transition-opacity ${
                               selectedCategory === idx
-                                ? "hover:bg-card/20"
+                                ? "hover:bg-black/5"
                                 : "hover:bg-secondary"
                             }`}
                           >
                             <MoreHorizontal
-                              className={`h-4 w-4 ${
-                                selectedCategory === idx
-                                  ? "text-card"
-                                  : "text-muted-foreground"
-                              }`}
+                              className="h-4 w-4 text-muted-foreground"
                             />
                           </button>
                         </DropdownMenuTrigger>
@@ -1228,7 +1220,7 @@ const DishesListPage = () => {
                 <img
                   src={emptyMenuImage}
                   alt="Empty menu"
-                  className="mb-6 h-32 w-32 object-contain"
+                  className="h-32 w-32 object-contain"
                 />
                 <p className="mb-4 text-base font-semibold text-foreground">
                   {keyword && !hasAnySearchResult
