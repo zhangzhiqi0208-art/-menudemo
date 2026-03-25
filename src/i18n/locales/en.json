@@ -230,5 +230,62 @@
     "cancel": "Cancel",
     "save": "Save",
     "pinToTop": "Pin to top"
+  },
+  "builtin": {
+    "categories": {
+      "c0": "🍔 Signature burgers",
+      "c1": "🍟 Value combos",
+      "c2": "🐮 Daily limited — while supplies last",
+      "c3": "🧑‍🍳 House originals",
+      "c4": "🍗 Snacks & drinks",
+      "c5": "🥬 Toppings",
+      "c6": "🍦 Ice cream"
+    },
+    "items": {
+      "0-1": "Double smashed beef burger",
+      "0-2": "Triple smashed beef burger",
+      "0-3": "Bacon cheese smashed beef burger",
+      "0-4": "Egg smashed beef burger",
+      "0-5": "Cheese smashed beef burger",
+      "1-1": "Smashed beef burger combo",
+      "1-2": "N! Crispy chicken combo",
+      "1-3": "Cheese burger 120g combo",
+      "1-4": "Cheese burger 180g combo",
+      "2-1": "March special chicken thigh rice bowl",
+      "3-1": "N! Original taco",
+      "3-2": "N! Secret meat sauce flatbread",
+      "4-1": "Classic fries (sea salt)",
+      "4-2": "Country fries (cheese & bacon)",
+      "4-3": "Onion rings (12 pcs)",
+      "4-6": "Fried chicken",
+      "4-8": "Garden salad",
+      "4-9": "Cheese salad",
+      "4-10": "Classic salad",
+      "4-11": "Coca-Cola",
+      "4-12": "Sprite",
+      "5-1": "Lettuce",
+      "5-2": "Onion",
+      "5-3": "Pickles",
+      "6-1": "Vanilla ice cream",
+      "6-2": "Strawberry ice cream",
+      "6-3": "Chocolate ice cream"
+    },
+    "ag": {
+      "1_2_0": "Sides",
+      "1_2_1": "Salad (pick 1 of 3)",
+      "1_2_2": "Drinks (pick 1 of 2)"
+    },
+    "ai": {
+      "1_2_0_0": "Fried chicken",
+      "1_2_1_0": "Garden salad",
+      "1_2_1_1": "Cheese salad",
+      "1_2_1_2": "Classic salad",
+      "1_2_2_0": "Coca-Cola",
+      "1_2_2_1": "Sprite"
+    },
+    "warnings": {
+      "lowStock": "Insufficient stock",
+      "prohibitedWords": "This item was delisted by the platform for prohibited wording."
+    }
   }
 }

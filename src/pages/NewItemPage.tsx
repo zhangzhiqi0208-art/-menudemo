@@ -41,6 +41,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMenu, type ComboPortion } from "@/contexts/MenuContext";
+import { displayCategoryName } from "@/i18n/builtinDisplay";
 import { toast } from "@/hooks/use-toast";
 import {
   buildMenuItemPayload,
@@ -915,7 +916,11 @@ const NewItemPage = () => {
                 <SelectValue placeholder={t("newItem.pleaseSelect")} />
               </SelectTrigger>
               <SelectContent>
-                {categories.map((cat, idx) => (<SelectItem key={idx} value={String(idx)}>{cat.name}</SelectItem>))}
+                {categories.map((cat, idx) => (
+                  <SelectItem key={idx} value={String(idx)}>
+                    {displayCategoryName(cat, t)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {submitted && !selectedCategoryIdx && <p className="mt-1 text-xs text-destructive">{t("newItem.categoryRequired")}</p>}
@@ -1531,7 +1536,7 @@ const NewItemPage = () => {
                 <SelectContent>
                   {categories.map((cat, idx) => (
                     <SelectItem key={idx} value={String(idx)}>
-                      {cat.name}
+                      {displayCategoryName(cat, t)}
                     </SelectItem>
                   ))}
                 </SelectContent>

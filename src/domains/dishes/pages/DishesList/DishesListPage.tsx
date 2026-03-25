@@ -65,8 +65,17 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { CategorySortDialog } from "@/components/CategorySortDialog";
 import { ItemSortDialog } from "@/components/ItemSortDialog";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
-import { useMenu, type AddOnGroup, type AddOnItem, type MenuItem } from "@/contexts/MenuContext";
+import { useMenu, type AddOnGroup, type AddOnItem, type Category, type MenuItem } from "@/contexts/MenuContext";
 import { formatAddOnGroupListLabel } from "@/domains/dishes/model/menuItemMappers";
+import {
+  BUILTIN_BURGER_CATEGORY_LOCALE_KEY,
+  displayAddonGroupName,
+  displayAddonItemName,
+  displayAddonItemWarning,
+  displayCategoryName,
+  displayItemTitle,
+  displayLinkedMenuName,
+} from "@/i18n/builtinDisplay";
 import { cn } from "@/lib/utils";
 
 function isItemImageUrl(image: unknown): boolean {
@@ -272,7 +281,10 @@ const DishesListPage = () => {
   const itemPassesToolbarFilters = (item: MenuItem) => {
     if (keyword) {
       const title = (item.title ?? "").toLowerCase();
-      if (!title.includes(keyword)) return false;
+      const translated = item.localeTitleKey
+        ? t(item.localeTitleKey).toLowerCase()
+        : "";
+      if (!title.includes(keyword) && !translated.includes(keyword)) return false;
     }
     if (filterSaleStatus === "active" && item.status !== true) return false;
     if (filterSaleStatus === "inactive" && item.status !== false) return false;
@@ -349,18 +361,23 @@ const DishesListPage = () => {
 
   const handleEditCategory = (idx: number) => {
     setEditingCategoryIndex(idx);
-    setEditCategoryName(categories[idx].name);
+    const cat = categories[idx];
+    setEditCategoryName(cat.localeKey ? t(cat.localeKey) : cat.name);
     setEditDialogOpen(true);
   };
 
   const handleSaveCategory = () => {
     if (editCategoryName.trim() === "" || editingCategoryIndex === null) return;
     setCategories((prev) =>
-      prev.map((cat, idx) =>
-        idx === editingCategoryIndex
-          ? { ...cat, name: editCategoryName.trim() }
-          : cat,
-      ),
+      prev.map((cat, idx) => {
+        if (idx !== editingCategoryIndex) return cat;
+        const trimmed = editCategoryName.trim();
+        if (cat.localeKey) {
+          if (trimmed === t(cat.localeKey) || trimmed === cat.name) return cat;
+          return { name: trimmed, count: cat.count };
+        }
+        return { ...cat, name: trimmed };
+      }),
     );
     setEditDialogOpen(false);
     setEditingCategoryIndex(null);
@@ -407,10 +424,14 @@ const DishesListPage = () => {
     setNewCategoryName("");
   };
 
-  const handleSortSave = (reordered: { name: string; count: number }[]) => {
-    const oldIndexMap = reordered.map((r) =>
-      categories.findIndex((c) => c.name === r.name),
-    );
+  const handleSortSave = (reordered: Category[]) => {
+    const oldIndexMap = reordered.map((r) => {
+      if (r.localeKey) {
+        const byKey = categories.findIndex((c) => c.localeKey === r.localeKey);
+        if (byKey !== -1) return byKey;
+      }
+      return categories.findIndex((c) => c.name === r.name);
+    });
     const newCategoryItemsMap: Record<number, MenuItem[]> = {};
     oldIndexMap.forEach((oldIdx, newIdx) => {
       newCategoryItemsMap[newIdx] = categoryItems[oldIdx] || [];
@@ -499,6 +520,7 @@ const DishesListPage = () => {
     keyword,
     filterSaleStatus,
     filterSaleAttribute,
+    t,
   ]);
 
   const itemIdToCategoryIndex = useMemo(() => {
@@ -512,24 +534,23 @@ const DishesListPage = () => {
 
   /** 右侧表头：多选分类时展示合并标题与总条数 */
   const mainPanelHeading = useMemo(() => {
+    const catLabel = (i: number) =>
+      categories[i] ? displayCategoryName(categories[i], t) : "";
     if (filterCategoryIndices.length === 0) {
       return {
-        title: categories[selectedCategory]?.name ?? "",
+        title: catLabel(selectedCategory),
         count: getCategoryVisibleCount(selectedCategory),
       };
     }
     if (filterCategoryIndices.length === 1) {
       const i = filterCategoryIndices[0];
       return {
-        title: categories[i]?.name ?? "",
+        title: catLabel(i),
         count: getCategoryVisibleCount(i),
       };
     }
     return {
-      title: filterCategoryIndices
-        .map((i) => categories[i]?.name)
-        .filter(Boolean)
-        .join("、"),
+      title: filterCategoryIndices.map(catLabel).filter(Boolean).join("、"),
       count: filterCategoryIndices.reduce(
         (sum, i) => sum + getCategoryVisibleCount(i),
         0,
@@ -543,6 +564,7 @@ const DishesListPage = () => {
     keyword,
     filterSaleStatus,
     filterSaleAttribute,
+    t,
   ]);
 
   type DisplayRow =
@@ -573,7 +595,12 @@ const DishesListPage = () => {
         let subGroupHeaderPushed = false;
         for (let si = 0; si < group.items.length; si++) {
           const sub = group.items[si];
-          const subMatch = sub.name.toLowerCase().includes(keyword);
+          const subDisp = sub.localeNameKey
+            ? t(sub.localeNameKey).toLowerCase()
+            : "";
+          const subMatch =
+            sub.name.toLowerCase().includes(keyword) ||
+            subDisp.includes(keyword);
           if (!subMatch) continue;
           const parentCatIdx =
             itemIdToCategoryIndex.get(item.id) ?? selectedCategory;
@@ -598,7 +625,7 @@ const DishesListPage = () => {
       }
     }
     return rows;
-  }, [mainItems, keyword, selectedCategory, categoryItems, itemIdToCategoryIndex]);
+  }, [mainItems, keyword, selectedCategory, categoryItems, itemIdToCategoryIndex, t]);
 
   const filteredItems = mainItems;
 
@@ -629,10 +656,11 @@ const DishesListPage = () => {
   const categoryFilterTriggerLabel = useMemo(() => {
     if (filterCategoryIndices.length === 0) return "全部分类";
     if (filterCategoryIndices.length === 1) {
-      return categories[filterCategoryIndices[0]]?.name ?? "全部分类";
+      const c = categories[filterCategoryIndices[0]];
+      return c ? displayCategoryName(c, t) : "全部分类";
     }
     return `已选 ${filterCategoryIndices.length} 个分类`;
-  }, [filterCategoryIndices, categories]);
+  }, [filterCategoryIndices, categories, t]);
 
   const parseBRL = (price: string) => {
     const raw = (price ?? "").replace(/^R\$\s?/, "").trim();
@@ -679,7 +707,7 @@ const DishesListPage = () => {
   /** 仅「招牌汉堡」分类下的菜品展示高价菜/平价菜图标（合并多分类时按菜品所属分类判断） */
   const showPriceTierIconForItem = (itemId: string) => {
     const catIdx = itemIdToCategoryIndex.get(itemId) ?? selectedCategory;
-    return (categories[catIdx]?.name ?? "").includes("招牌汉堡");
+    return categories[catIdx]?.localeKey === BUILTIN_BURGER_CATEGORY_LOCALE_KEY;
   };
 
   const totalMenuItemCount = useMemo(
@@ -895,7 +923,9 @@ const DishesListPage = () => {
                           checked={filterCategoryIndices.includes(idx)}
                           onCheckedChange={() => toggleFilterCategoryIndex(idx)}
                         />
-                        <span className="min-w-0 truncate">{cat.name}</span>
+                        <span className="min-w-0 truncate">
+                          {displayCategoryName(cat, t)}
+                        </span>
                       </label>
                     ))}
                   </div>
@@ -1003,7 +1033,7 @@ const DishesListPage = () => {
                     }`}
                   >
                     <TruncatedText
-                      text={cat.name}
+                      text={displayCategoryName(cat, t)}
                       className="flex-1 min-w-0 mr-2"
                     />
                     <span
@@ -1312,9 +1342,9 @@ const DishesListPage = () => {
                                 if (batchMode) return;
                                 navigate(`/menu/edit/${row.item.id}`);
                               }}
-                              title={row.item.title}
+                              title={displayItemTitle(row.item, t)}
                             >
-                              {row.item.title || "-"}
+                              {displayItemTitle(row.item, t) || "-"}
                             </p>
                             {(row.item.reviewStatus ||
                               row.item.marketingActivity ||
@@ -1413,7 +1443,7 @@ const DishesListPage = () => {
                               enablePriceHoverBg
                               showTierIcon={showPriceTierIconForItem(row.item.id)}
                               expensiveTooltipOverride={
-                                row.item.title === "三层碎牛肉汉堡"
+                                row.item.id === "0-2"
                                   ? "高于堂食价格6.9元"
                                   : undefined
                               }
@@ -1484,10 +1514,14 @@ const DishesListPage = () => {
                                       aria-hidden
                                     />
                                     <span className="block text-sm font-medium text-[#212121]">
-                                      {formatAddOnGroupListLabel(group, {
-                                        required: t("menuList.required"),
-                                        optional: t("menuList.addOnGroupOptionalTag"),
-                                      })}
+                                      {formatAddOnGroupListLabel(
+                                        group,
+                                        {
+                                          required: t("menuList.required"),
+                                          optional: t("menuList.addOnGroupOptionalTag"),
+                                        },
+                                        displayAddonGroupName(group, t),
+                                      )}
                                     </span>
                                   </div>
                                   <div />
@@ -1509,7 +1543,9 @@ const DishesListPage = () => {
                                       )}
                                       <div className="flex min-w-0 items-center gap-3">
                                         <div className="h-6 w-12 shrink-0" aria-hidden />
-                                        <span className="truncate text-sm">{sub.name}</span>
+                                        <span className="truncate text-sm">
+                                          {displayAddonItemName(sub, t)}
+                                        </span>
                                       </div>
                                       <div className="flex min-w-0 w-full justify-end text-sm">
                                         <PriceWithIcon
@@ -1564,8 +1600,8 @@ const DishesListPage = () => {
                                         </button>
                                       </div>
                                     </div>
-                                    {sub.warning &&
-                                      sub.warning.includes("prohibited") && (
+                                    {sub.localeWarningKey ===
+                                      "builtin.warnings.prohibitedWords" && (
                                         <div className="flex gap-6 px-4 pb-1">
                                           {batchMode && (
                                             <div className="w-8 shrink-0" aria-hidden />
@@ -1573,7 +1609,9 @@ const DishesListPage = () => {
                                           <div className="flex min-w-0 flex-1 items-start gap-3">
                                             <div className="h-6 w-12 shrink-0" aria-hidden />
                                             <p className="text-xs text-destructive">
-                                              ⛔ {sub.warning}{" "}
+                                              ⛔{" "}
+                                              {displayAddonItemWarning(sub, t) ??
+                                                sub.warning}{" "}
                                               <span className="cursor-pointer text-primary-foreground underline">
                                                 Go and view details ›
                                               </span>
@@ -1609,10 +1647,14 @@ const DishesListPage = () => {
                             aria-hidden
                           />
                           <span className="text-sm font-medium text-[#212121]">
-                            {formatAddOnGroupListLabel(row.group, {
-                              required: t("menuList.required"),
-                              optional: t("menuList.addOnGroupOptionalTag"),
-                            })}
+                            {formatAddOnGroupListLabel(
+                              row.group,
+                              {
+                                required: t("menuList.required"),
+                                optional: t("menuList.addOnGroupOptionalTag"),
+                              },
+                              displayAddonGroupName(row.group, t),
+                            )}
                           </span>
                         </div>
                         <div />
@@ -1643,9 +1685,9 @@ const DishesListPage = () => {
                                 `/menu/edit/sub/${row.parentItem.id}/${row.groupIdx}/${row.subIdx}`
                               )
                             }
-                            title={row.sub.name}
+                            title={displayAddonItemName(row.sub, t)}
                           >
-                            {row.sub.name}
+                            {displayAddonItemName(row.sub, t)}
                           </p>
                         </div>
                       </div>
@@ -1734,9 +1776,15 @@ const DishesListPage = () => {
                 <DialogDescription className="text-left text-sm leading-relaxed text-muted-foreground">
                   {linkedUnlistDialog
                     ? t("menuList.linkedUnlistBody", {
-                        item: linkedUnlistDialog.itemName,
+                        item: displayLinkedMenuName(
+                          categoryItems,
+                          linkedUnlistDialog.itemName,
+                          t,
+                        ),
                         parents: formatParentTitlesBracketed(
-                          linkedUnlistDialog.parentTitles,
+                          linkedUnlistDialog.parentTitles.map((p) =>
+                            displayLinkedMenuName(categoryItems, p, t),
+                          ),
                         ),
                       })
                     : null}
@@ -1872,11 +1920,16 @@ const DishesListPage = () => {
         <ItemSortDialog
           open={itemSortDialogOpen}
           onOpenChange={setItemSortDialogOpen}
-          categoryName={categories[selectedCategory]?.name || ""}
+          categoryName={
+            categories[selectedCategory]
+              ? displayCategoryName(categories[selectedCategory], t)
+              : ""
+          }
           items={(categoryItems[selectedCategory] || []).map((i) => ({
             id: i.id,
             title: i.title,
             image: i.image,
+            listTitle: displayItemTitle(i, t),
           }))}
           onSave={handleItemSortSave}
         />

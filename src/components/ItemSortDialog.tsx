@@ -12,6 +12,8 @@ interface SortItem {
   id: string;
   title: string;
   image: string;
+  /** 列表展示用（多语言）；不传则用 title */
+  listTitle?: string;
 }
 
 function isItemImageUrl(image: unknown): boolean {
@@ -133,7 +135,9 @@ export const ItemSortDialog = ({
                     <span className="leading-none">{item.image}</span>
                   ) : null}
                 </div>
-                <span className="text-sm truncate">{item.title}</span>
+                <span className="text-sm truncate">
+                  {item.listTitle ?? item.title}
+                </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button

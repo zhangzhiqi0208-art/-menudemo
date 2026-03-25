@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import type { Category } from "@/contexts/MenuContext";
+import { displayCategoryName } from "@/i18n/builtinDisplay";
 import { ArrowUpToLine, GripVertical, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,8 +15,8 @@ import {
 interface CategorySortDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  categories: { name: string; count: number }[];
-  onSave: (reordered: { name: string; count: number }[]) => void;
+  categories: Category[];
+  onSave: (reordered: Category[]) => void;
 }
 
 export const CategorySortDialog = ({
@@ -105,7 +107,7 @@ export const CategorySortDialog = ({
                   : "bg-background"
               }`}
             >
-              <span className="text-sm">{cat.name}</span>
+              <span className="text-sm">{displayCategoryName(cat, t)}</span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handlePinToTop(idx)}

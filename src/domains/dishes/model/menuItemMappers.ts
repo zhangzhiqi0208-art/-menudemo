@@ -11,8 +11,10 @@ export const stripOptionGroupNameSuffix = (name: string) =>
 export const formatAddOnGroupListLabel = (
   group: Pick<AddOnGroup, "name" | "required" | "min" | "max">,
   tags: { required: string; optional: string },
+  /** 已解析的展示用名称（多语言）；不传则用 group.name */
+  resolvedBaseName?: string,
 ) => {
-  const base = stripOptionGroupNameSuffix(group.name);
+  const base = stripOptionGroupNameSuffix(resolvedBaseName ?? group.name);
   const min = group.min ?? "1";
   const max = group.max ?? "1";
   const mid = group.required ? tags.required : tags.optional;

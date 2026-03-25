@@ -10,6 +10,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useMenu } from "@/contexts/MenuContext";
+import {
+  displayAddonGroupName,
+  displayAddonItemName,
+  displayItemTitle,
+} from "@/i18n/builtinDisplay";
 import { toast } from "@/hooks/use-toast";
 import { scrollFieldIntoViewInAdminMain } from "@/lib/scrollFieldIntoView";
 
@@ -20,7 +25,7 @@ const SubItemEditPage = () => {
     groupIdx: string;
     subIdx: string;
   }>();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { getItemById, updateItem } = useMenu();
 
   const data = parentId ? getItemById(parentId) : null;
@@ -40,7 +45,7 @@ const SubItemEditPage = () => {
 
   useEffect(() => {
     if (subItem) {
-      setName(subItem.name);
+      setName(subItem.localeNameKey ? t(subItem.localeNameKey) : subItem.name);
       const rawPrice = subItem.deliveryPrice?.replace(/^R\$\s?/, "") || "";
       setPrice(rawPrice);
       setStock(
@@ -51,7 +56,7 @@ const SubItemEditPage = () => {
       );
       setStatus(subItem.status);
     }
-  }, [subItem]);
+  }, [subItem, t, i18n.language]);
 
   const handleSave = () => {
     flushSync(() => setSubmitted(true));
@@ -67,6 +72,22 @@ const SubItemEditPage = () => {
     const stockVal = stock === "unlimited" ? "999" : stockCount || "0";
     const formattedPrice = price.trim() ? `R$${price.trim()}` : "R$0.00";
 
+    const trimmed = name.trim();
+    let resolvedName: string;
+    let nextLocaleNameKey = subItem.localeNameKey;
+    let nextLocaleWarningKey = subItem.localeWarningKey;
+    if (subItem.localeNameKey) {
+      if (trimmed === t(subItem.localeNameKey) || trimmed === subItem.name) {
+        resolvedName = subItem.name;
+      } else {
+        nextLocaleNameKey = undefined;
+        nextLocaleWarningKey = undefined;
+        resolvedName = trimmed;
+      }
+    } else {
+      resolvedName = trimmed;
+    }
+
     const newAddOns = (parentItem.addOns || []).map((g, gIdx) =>
       gIdx === Number(groupIdx)
         ? {
@@ -75,7 +96,9 @@ const SubItemEditPage = () => {
               sIdx === Number(subIdx)
                 ? {
                     ...s,
-                    name: name.trim(),
+                    name: resolvedName,
+                    localeNameKey: nextLocaleNameKey,
+                    localeWarningKey: nextLocaleWarningKey,
                     deliveryPrice: formattedPrice,
                     pickupPrice: formattedPrice,
                     stock: stockVal,
@@ -115,14 +138,14 @@ const SubItemEditPage = () => {
             {t("newItem.back")}
           </Button>
           <h1 className="text-lg font-semibold">
-            {t("newItem.editSubItem")} · {subItem.name}
+            {t("newItem.editSubItem")} · {displayAddonItemName(subItem, t)}
           </h1>
           <div className="w-16" />
         </div>
 
         <div className="mx-auto max-w-xl space-y-6">
           <p className="text-sm text-muted-foreground">
-            {parentItem.title} → {group.name}
+            {displayItemTitle(parentItem, t)} → {displayAddonGroupName(group, t)}
           </p>
 
           <div ref={nameFieldRef}>

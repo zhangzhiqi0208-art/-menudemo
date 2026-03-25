@@ -230,5 +230,62 @@
     "cancel": "Cancelar",
     "save": "Salvar",
     "pinToTop": "Fixar no topo"
+  },
+  "builtin": {
+    "categories": {
+      "c0": "🍔 Hambúrgueres da casa",
+      "c1": "🍟 Combos em conta",
+      "c2": "🐮 Edição limitada diária — até acabar",
+      "c3": "🧑‍🍳 Originais da casa",
+      "c4": "🍗 Acompanhamentos e bebidas",
+      "c5": "🥬 Adicionais",
+      "c6": "🍦 Sorvete"
+    },
+    "items": {
+      "0-1": "Hambúrguer duplo de carne moída",
+      "0-2": "Hambúrguer triplo de carne moída",
+      "0-3": "Hambúrguer de carne moída com bacon e queijo",
+      "0-4": "Hambúrguer de carne moída com ovo",
+      "0-5": "Hambúrguer de carne moída com queijo",
+      "1-1": "Combo hambúrguer de carne moída",
+      "1-2": "Combo N! Frango crocante",
+      "1-3": "Combo hambúrguer de queijo 120 g",
+      "1-4": "Combo hambúrguer de queijo 180 g",
+      "2-1": "Tigela de arroz com coxa de frango especial de março",
+      "3-1": "N! Taco original",
+      "3-2": "N! Folheado com molho de carne especial",
+      "4-1": "Batatas clássicas (sal marinho)",
+      "4-2": "Batatas country (queijo e bacon)",
+      "4-3": "Anéis de cebola (12 un.)",
+      "4-6": "Frango frito",
+      "4-8": "Salada de legumes",
+      "4-9": "Salada com queijo",
+      "4-10": "Salada clássica",
+      "4-11": "Coca-Cola",
+      "4-12": "Sprite",
+      "5-1": "Alface",
+      "5-2": "Cebola",
+      "5-3": "Picles",
+      "6-1": "Sorvete de baunilha",
+      "6-2": "Sorvete de morango",
+      "6-3": "Sorvete de chocolate"
+    },
+    "ag": {
+      "1_2_0": "Acompanhamentos",
+      "1_2_1": "Salada (escolha 1 de 3)",
+      "1_2_2": "Bebidas (escolha 1 de 2)"
+    },
+    "ai": {
+      "1_2_0_0": "Frango frito",
+      "1_2_1_0": "Salada de legumes",
+      "1_2_1_1": "Salada com queijo",
+      "1_2_1_2": "Salada clássica",
+      "1_2_2_0": "Coca-Cola",
+      "1_2_2_1": "Sprite"
+    },
+    "warnings": {
+      "lowStock": "Estoque insuficiente",
+      "prohibitedWords": "Este item foi retirado da plataforma por conteúdo proibido."
+    }
   }
 }
