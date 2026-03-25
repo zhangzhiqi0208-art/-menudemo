@@ -7,7 +7,8 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
-    port: 8080,
+    // 与 Lovable / Cursor 内置预览常用端口一致，避免打开 8081 却实际服务在 8080 导致空白页
+    port: 8081,
     hmr: {
       overlay: false,
     },

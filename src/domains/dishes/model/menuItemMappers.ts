@@ -1,8 +1,11 @@
 import type { AddOnGroup, AddOnItem, ComboPortion, MenuItem } from "@/contexts/MenuContext";
 
-/** 去掉历史数据里名称中的「（2选1）」「(3选1)」等后缀 */
+/** 去掉历史数据里名称中的「（2选1）」「(3选1)」「（必选）」等后缀，避免与列表拼接的（必选1～2）重复 */
 export const stripOptionGroupNameSuffix = (name: string) =>
-  name.replace(/\s*[（(]\s*\d+\s*选\s*\d+\s*[）)]\s*/g, "").trim();
+  name
+    .replace(/\s*[（(]\s*\d+\s*选\s*\d+\s*[）)]\s*/g, "")
+    .replace(/\s*[（(]\s*必选\s*[）)]\s*/g, "")
+    .trim();
 
 /** 列表展示：饮品（必选1～2），由净名称 + required + min/max 拼出 */
 export const formatAddOnGroupListLabel = (

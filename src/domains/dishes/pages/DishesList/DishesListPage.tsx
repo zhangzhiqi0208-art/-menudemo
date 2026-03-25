@@ -26,6 +26,7 @@ import {
   Megaphone,
   Lock,
   Check,
+  ChevronDown,
   X,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -60,11 +61,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CategorySortDialog } from "@/components/CategorySortDialog";
 import { ItemSortDialog } from "@/components/ItemSortDialog";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
 import { useMenu, type AddOnGroup, type AddOnItem, type MenuItem } from "@/contexts/MenuContext";
 import { formatAddOnGroupListLabel } from "@/domains/dishes/model/menuItemMappers";
+import { cn } from "@/lib/utils";
 
 function isItemImageUrl(image: unknown): boolean {
   if (typeof image !== "string") return false;
@@ -157,8 +160,6 @@ const DishesListPage = () => {
     const cat = (location.state as { selectCategory?: number })?.selectCategory;
     return typeof cat === "number" && cat >= 0 ? cat : 0;
   });
-  const [expandedItems, setExpandedItems] = useState<string[]>([]);
-
   useEffect(() => {
     const cat = (location.state as { selectCategory?: number })?.selectCategory;
     if (typeof cat === "number" && cat >= 0) {
@@ -216,6 +217,27 @@ const DishesListPage = () => {
   const hasSelection = totalSelected > 0;
 
   const [searchTerm, setSearchTerm] = useState("");
+  /** 空数组表示「全部」；非空时为多选分类索引（与左侧菜单分类一致） */
+  const [filterCategoryIndices, setFilterCategoryIndices] = useState<number[]>([]);
+  const [filterSaleStatus, setFilterSaleStatus] = useState<
+    "all" | "active" | "inactive"
+  >("all");
+  const [filterSaleAttribute, setFilterSaleAttribute] = useState<
+    "all" | "standalone" | "not-standalone"
+  >("all");
+
+  useEffect(() => {
+    setFilterCategoryIndices((prev) =>
+      prev.filter((i) => i >= 0 && i < categories.length),
+    );
+  }, [categories.length]);
+
+  const toggleFilterCategoryIndex = (idx: number) => {
+    setFilterCategoryIndices((prev) => {
+      if (prev.includes(idx)) return prev.filter((i) => i !== idx);
+      return [...prev, idx].sort((a, b) => a - b);
+    });
+  };
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingCategoryIndex, setEditingCategoryIndex] = useState<
@@ -247,22 +269,32 @@ const DishesListPage = () => {
 
   const keyword = searchTerm.toLowerCase().trim();
 
-  const matchItem = (item: MenuItem) => {
-    if (!keyword) return true;
-    const title = (item.title ?? "").toLowerCase();
-    return title.includes(keyword);
+  const itemPassesToolbarFilters = (item: MenuItem) => {
+    if (keyword) {
+      const title = (item.title ?? "").toLowerCase();
+      if (!title.includes(keyword)) return false;
+    }
+    if (filterSaleStatus === "active" && item.status !== true) return false;
+    if (filterSaleStatus === "inactive" && item.status !== false) return false;
+    const notIndep = item.notSoldIndependently === true;
+    if (filterSaleAttribute === "standalone" && notIndep) return false;
+    if (filterSaleAttribute === "not-standalone" && !notIndep) return false;
+    return true;
   };
 
   const categoryHasMatch = (idx: number) => {
-    if (!keyword) return true;
+    const noNarrowing =
+      !keyword &&
+      filterSaleStatus === "all" &&
+      filterSaleAttribute === "all";
+    if (noNarrowing) return true;
     const items = categoryItems[idx] || [];
-    return items.some((item) => matchItem(item));
+    return items.some((item) => itemPassesToolbarFilters(item));
   };
 
   const getCategoryVisibleCount = (idx: number) => {
-    if (!keyword) return categories[idx].count;
     const items = categoryItems[idx] || [];
-    return items.filter((item) => matchItem(item)).length;
+    return items.filter((item) => itemPassesToolbarFilters(item)).length;
   };
 
   useEffect(() => {
@@ -313,12 +345,6 @@ const DishesListPage = () => {
     setEditingPriceValue("");
     setEditingPriceError(false);
     setEditingPriceWarning(false);
-  };
-
-  const toggleExpand = (id: string) => {
-    setExpandedItems((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
-    );
   };
 
   const handleEditCategory = (idx: number) => {
@@ -417,6 +443,13 @@ const DishesListPage = () => {
 
   useEffect(() => {
     if (!keyword) return;
+    if (filterCategoryIndices.length > 0) {
+      const first = filterCategoryIndices.find((idx) => categoryHasMatch(idx));
+      if (first !== undefined && first !== selectedCategory) {
+        setSelectedCategory(first);
+      }
+      return;
+    }
     if (categoryHasMatch(selectedCategory)) return;
 
     const fallbackIndex = categories.findIndex((_, idx) =>
@@ -425,10 +458,92 @@ const DishesListPage = () => {
     if (fallbackIndex !== -1) {
       setSelectedCategory(fallbackIndex);
     }
-  }, [keyword, categories, categoryItems, selectedCategory]);
+  }, [
+    keyword,
+    categories,
+    categoryItems,
+    selectedCategory,
+    filterCategoryIndices,
+    filterSaleStatus,
+    filterSaleAttribute,
+  ]);
 
-  const mainItems =
-    categoryItems[selectedCategory]?.filter((item) => matchItem(item)) || [];
+  useEffect(() => {
+    if (filterCategoryIndices.length === 0) return;
+    if (filterCategoryIndices.includes(selectedCategory)) return;
+    const next =
+      filterCategoryIndices.find((i) => categoryHasMatch(i)) ??
+      filterCategoryIndices[0];
+    setSelectedCategory(next);
+  }, [
+    filterCategoryIndices,
+    selectedCategory,
+    categoryItems,
+    keyword,
+    filterSaleStatus,
+    filterSaleAttribute,
+  ]);
+
+  const mainItems = useMemo(() => {
+    const indices =
+      filterCategoryIndices.length > 0
+        ? filterCategoryIndices
+        : [selectedCategory];
+    return indices
+      .flatMap((idx) => categoryItems[idx] ?? [])
+      .filter((item) => itemPassesToolbarFilters(item));
+  }, [
+    filterCategoryIndices,
+    selectedCategory,
+    categoryItems,
+    keyword,
+    filterSaleStatus,
+    filterSaleAttribute,
+  ]);
+
+  const itemIdToCategoryIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const key of Object.keys(categoryItems)) {
+      const idx = Number(key);
+      for (const it of categoryItems[idx] || []) map.set(it.id, idx);
+    }
+    return map;
+  }, [categoryItems]);
+
+  /** 右侧表头：多选分类时展示合并标题与总条数 */
+  const mainPanelHeading = useMemo(() => {
+    if (filterCategoryIndices.length === 0) {
+      return {
+        title: categories[selectedCategory]?.name ?? "",
+        count: getCategoryVisibleCount(selectedCategory),
+      };
+    }
+    if (filterCategoryIndices.length === 1) {
+      const i = filterCategoryIndices[0];
+      return {
+        title: categories[i]?.name ?? "",
+        count: getCategoryVisibleCount(i),
+      };
+    }
+    return {
+      title: filterCategoryIndices
+        .map((i) => categories[i]?.name)
+        .filter(Boolean)
+        .join("、"),
+      count: filterCategoryIndices.reduce(
+        (sum, i) => sum + getCategoryVisibleCount(i),
+        0,
+      ),
+    };
+  }, [
+    filterCategoryIndices,
+    selectedCategory,
+    categories,
+    categoryItems,
+    keyword,
+    filterSaleStatus,
+    filterSaleAttribute,
+  ]);
 
   type DisplayRow =
     | { type: "main"; item: MenuItem }
@@ -460,7 +575,9 @@ const DishesListPage = () => {
           const sub = group.items[si];
           const subMatch = sub.name.toLowerCase().includes(keyword);
           if (!subMatch) continue;
-          if (selectedCategory === 1 && snackTitles.has(sub.name)) continue;
+          const parentCatIdx =
+            itemIdToCategoryIndex.get(item.id) ?? selectedCategory;
+          if (parentCatIdx === 1 && snackTitles.has(sub.name)) continue;
           if (!subGroupHeaderPushed) {
             rows.push({
               type: "subGroupHeader",
@@ -481,13 +598,41 @@ const DishesListPage = () => {
       }
     }
     return rows;
-  }, [mainItems, keyword, selectedCategory, categoryItems]);
+  }, [mainItems, keyword, selectedCategory, categoryItems, itemIdToCategoryIndex]);
 
   const filteredItems = mainItems;
 
   const hasAnySearchResult = keyword
-    ? categories.some((_, idx) => categoryHasMatch(idx))
+    ? filterCategoryIndices.length > 0
+      ? filterCategoryIndices.some((idx) => categoryHasMatch(idx))
+      : categories.some((_, idx) => categoryHasMatch(idx))
     : true;
+
+  const hasActiveToolbarFilters =
+    filterSaleStatus !== "all" ||
+    filterSaleAttribute !== "all" ||
+    filterCategoryIndices.length > 0;
+
+  const hasAnyFilteredItemInMenu =
+    filterCategoryIndices.length > 0
+      ? filterCategoryIndices.some((idx) =>
+          (categoryItems[idx] || []).some((item) =>
+            itemPassesToolbarFilters(item),
+          ),
+        )
+      : categories.some((_, idx) =>
+          (categoryItems[idx] || []).some((item) =>
+            itemPassesToolbarFilters(item),
+          ),
+        );
+
+  const categoryFilterTriggerLabel = useMemo(() => {
+    if (filterCategoryIndices.length === 0) return "全部分类";
+    if (filterCategoryIndices.length === 1) {
+      return categories[filterCategoryIndices[0]]?.name ?? "全部分类";
+    }
+    return `已选 ${filterCategoryIndices.length} 个分类`;
+  }, [filterCategoryIndices, categories]);
 
   const parseBRL = (price: string) => {
     const raw = (price ?? "").replace(/^R\$\s?/, "").trim();
@@ -531,9 +676,20 @@ const DishesListPage = () => {
   const expensiveTooltipText = "高价菜";
   const affordableTooltipText = "平价菜";
 
-  /** 仅「招牌汉堡」分类展示高价菜/平价菜图标 */
-  const showPriceTierIcon =
-    (categories[selectedCategory]?.name ?? "").includes("招牌汉堡");
+  /** 仅「招牌汉堡」分类下的菜品展示高价菜/平价菜图标（合并多分类时按菜品所属分类判断） */
+  const showPriceTierIconForItem = (itemId: string) => {
+    const catIdx = itemIdToCategoryIndex.get(itemId) ?? selectedCategory;
+    return (categories[catIdx]?.name ?? "").includes("招牌汉堡");
+  };
+
+  const totalMenuItemCount = useMemo(
+    () =>
+      categories.reduce(
+        (sum, _, catIdx) => sum + (categoryItems[catIdx]?.length ?? 0),
+        0,
+      ),
+    [categories, categoryItems],
+  );
 
   const PriceWithIcon = ({
     price,
@@ -616,7 +772,7 @@ const DishesListPage = () => {
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold">
-              {t("menuList.nightBistroMenu")} (66)
+              N! Burger Bistro Menu ({totalMenuItemCount})
             </h1>
             <span
               className="hidden flex items-center gap-1 rounded-full border border-border px-3 py-0.5 text-xs text-muted-foreground"
@@ -644,42 +800,108 @@ const DishesListPage = () => {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder={t("menuList.search")}
-                className="h-9 w-48 pl-9"
+                className="h-9 w-[140px] shrink-0 pl-9"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <Select>
-              <SelectTrigger className="h-9 w-36">
-                <SelectValue placeholder={t("menuList.itemStatus")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("menuList.all")}</SelectItem>
-                <SelectItem value="active">{t("menuList.active")}</SelectItem>
-                <SelectItem value="inactive">
-                  {t("menuList.inactive")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Select>
-              <SelectTrigger className="h-9 w-36">
-                <SelectValue placeholder={t("menuList.saleStatus")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("menuList.all")}</SelectItem>
-                <SelectItem value="on-sale">
-                  {t("menuList.onSale")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Select>
-              <SelectTrigger className="h-9 w-36">
-                <SelectValue placeholder={t("menuList.category")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("menuList.all")}</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-3">
+              <Select
+                value={filterSaleStatus === "all" ? undefined : filterSaleStatus}
+                onValueChange={(v) =>
+                  setFilterSaleStatus(
+                    (v as "all" | "active" | "inactive") ?? "all",
+                  )
+                }
+              >
+                <SelectTrigger
+                  className={cn(
+                    "h-9 w-[140px] shrink-0",
+                    filterSaleStatus === "all" && "[&>span]:text-[#BABABF]",
+                  )}
+                >
+                  <SelectValue placeholder="全部售卖状态" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部售卖状态</SelectItem>
+                  <SelectItem value="active">{t("menuList.active")}</SelectItem>
+                  <SelectItem value="inactive">
+                    {t("menuList.inactive")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={
+                  filterSaleAttribute === "all"
+                    ? undefined
+                    : filterSaleAttribute
+                }
+                onValueChange={(v) =>
+                  setFilterSaleAttribute(
+                    (v as "all" | "standalone" | "not-standalone") ?? "all",
+                  )
+                }
+              >
+                <SelectTrigger
+                  className={cn(
+                    "h-9 w-[140px] shrink-0",
+                    filterSaleAttribute === "all" &&
+                      "[&>span]:text-[#BABABF]",
+                  )}
+                >
+                  <SelectValue placeholder="全部售卖属性" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部售卖属性</SelectItem>
+                  <SelectItem value="standalone">可独立售卖</SelectItem>
+                  <SelectItem value="not-standalone">不可独立售卖</SelectItem>
+                </SelectContent>
+              </Select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex h-9 w-[140px] shrink-0 items-center justify-between rounded-md border border-[#BABABF] bg-transparent px-3 py-2 text-sm focus:outline-none focus:border-black data-[state=open]:border-black disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        filterCategoryIndices.length === 0 && "text-[#BABABF]",
+                      )}
+                    >
+                      {categoryFilterTriggerLabel}
+                    </span>
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-56 p-2">
+                  <div className="max-h-60 space-y-0.5 overflow-y-auto">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent">
+                      <Checkbox
+                        checked={filterCategoryIndices.length === 0}
+                        onCheckedChange={(checked) => {
+                          if (checked) setFilterCategoryIndices([]);
+                        }}
+                      />
+                      <span>全部分类</span>
+                    </label>
+                    {categories.map((cat, idx) => (
+                      <label
+                        key={idx}
+                        className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                      >
+                        <Checkbox
+                          checked={filterCategoryIndices.includes(idx)}
+                          onCheckedChange={() => toggleFilterCategoryIndex(idx)}
+                        />
+                        <span className="min-w-0 truncate">{cat.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <Button
@@ -709,6 +931,17 @@ const DishesListPage = () => {
             />
             <p className="mb-4 text-base font-semibold text-foreground">
               暂无搜索结果
+            </p>
+          </div>
+        ) : hasActiveToolbarFilters && !hasAnyFilteredItemInMenu ? (
+          <div className="flex flex-1 flex-col items-center justify-center py-32">
+            <img
+              src={emptyMenuImage}
+              alt="Empty menu"
+              className="mb-6 h-32 w-32 object-contain"
+            />
+            <p className="mb-4 text-base font-semibold text-foreground">
+              暂无符合筛选条件的菜品
             </p>
           </div>
         ) : (
@@ -751,6 +984,12 @@ const DishesListPage = () => {
             </div>
             <div className="space-y-0.5">
               {categories.map((cat, idx) => {
+                if (
+                  filterCategoryIndices.length > 0 &&
+                  !filterCategoryIndices.includes(idx)
+                ) {
+                  return null;
+                }
                 if (!categoryHasMatch(idx)) return null;
                 const selectedCount = getSelectedCountForCategory(idx);
                 return (
@@ -841,10 +1080,12 @@ const DishesListPage = () => {
           <div className="flex-1 overflow-auto">
             {!batchMode && (
               <div className="mb-2 flex h-[48px] items-center justify-between">
-                <h2 className="flex items-center gap-2 text-base font-semibold">
-                  <span>{categories[selectedCategory].name}</span>
-                  <span className="font-normal text-muted-foreground">
-                    {getCategoryVisibleCount(selectedCategory)}
+                <h2 className="flex min-w-0 items-center gap-2 text-base font-semibold">
+                  <span className="min-w-0 truncate" title={mainPanelHeading.title}>
+                    {mainPanelHeading.title}
+                  </span>
+                  <span className="shrink-0 font-normal text-muted-foreground">
+                    {mainPanelHeading.count}
                     {t("menuList.itemsCount")}
                   </span>
                 </h2>
@@ -946,7 +1187,7 @@ const DishesListPage = () => {
             )}
 
             {batchMode ? (
-              <div className="grid grid-cols-[32px_1fr_160px_70px_30px] gap-4 px-4 pb-2 text-xs text-muted-foreground">
+              <div className="grid grid-cols-[32px_1fr_160px_auto] items-center gap-6 px-4 pb-2 text-xs text-muted-foreground">
                 <div className="flex items-center justify-center">
                   <Checkbox
                     checked={
@@ -960,21 +1201,25 @@ const DishesListPage = () => {
                     }
                   />
                 </div>
-                <span>{t("menuList.title")}</span>
-                <div className="flex min-w-0 w-full justify-end">
-                  <span>{t("menuList.delivery")}</span>
+                <span className="leading-none">{t("menuList.title")}</span>
+                <div className="flex min-w-0 w-full items-center justify-end">
+                  <span className="leading-none">{t("menuList.delivery")}</span>
                 </div>
-                <span className="text-center">{t("menuList.status")}</span>
-                <span></span>
+                <div className="flex items-center gap-4">
+                  <span className="w-[46px] shrink-0 text-left leading-none">{t("menuList.status")}</span>
+                  <span className="flex size-8 shrink-0" aria-hidden />
+                </div>
               </div>
             ) : (
-              <div className="grid grid-cols-[1fr_160px_70px_30px] gap-4 pl-0 pr-4 pb-2 text-xs text-muted-foreground">
-                <span>{t("menuList.title")}</span>
-                <div className="flex min-w-0 w-full justify-end">
-                  <span>{t("menuList.delivery")}</span>
+              <div className="grid grid-cols-[1fr_160px_auto] items-center gap-6 pl-0 pr-4 pb-2 text-xs text-muted-foreground">
+                <span className="leading-none">{t("menuList.title")}</span>
+                <div className="flex min-w-0 w-full items-center justify-end">
+                  <span className="leading-none">{t("menuList.delivery")}</span>
                 </div>
-                <span className="text-center">{t("menuList.status")}</span>
-                <span></span>
+                <div className="flex items-center gap-4">
+                  <span className="w-[46px] shrink-0 text-left leading-none">{t("menuList.status")}</span>
+                  <span className="flex size-8 shrink-0" aria-hidden />
+                </div>
               </div>
             )}
 
@@ -988,7 +1233,9 @@ const DishesListPage = () => {
                 <p className="mb-4 text-base font-semibold text-foreground">
                   {keyword && !hasAnySearchResult
                     ? "暂无搜索结果"
-                    : t("menuList.startBuilding")}
+                    : hasActiveToolbarFilters && (filteredItems || []).length === 0
+                      ? "暂无符合筛选条件的菜品"
+                      : t("menuList.startBuilding")}
                 </p>
                 {!keyword && (
                   <Button
@@ -1007,10 +1254,10 @@ const DishesListPage = () => {
                     row.type === "main" ? (
                     <div key={row.item.id}>
                       <div
-                        className={`grid items-center gap-4 px-4 py-3 ${
+                        className={`grid items-center gap-6 px-4 py-3 ${
                           batchMode
-                            ? "grid-cols-[32px_1fr_160px_70px_30px]"
-                            : "grid-cols-[1fr_160px_70px_30px]"
+                            ? "grid-cols-[32px_1fr_160px_auto]"
+                            : "grid-cols-[1fr_160px_auto]"
                         }`}
                       >
                         {batchMode && (
@@ -1172,7 +1419,7 @@ const DishesListPage = () => {
                               price={row.item.deliveryPrice}
                               onPriceClick={() => startEditPrice(row.item)}
                               enablePriceHoverBg
-                              showTierIcon={showPriceTierIcon}
+                              showTierIcon={showPriceTierIconForItem(row.item.id)}
                               expensiveTooltipOverride={
                                 row.item.title === "三层碎牛肉汉堡"
                                   ? "高于堂食价格6.9元"
@@ -1181,151 +1428,217 @@ const DishesListPage = () => {
                             />
                           </div>
                         )}
-                        <div
-                          className="flex justify-center"
-                          style={{ opacity: !row.item.status ? 2.5 : 1 }}
-                        >
-                          <Switch
-                            checked={row.item.status}
-                            onCheckedChange={(checked) => {
-                              const name = row.item.title;
-                              if (isLinkedStandaloneAndSub(categoryItems, name)) {
-                                if (!checked) {
-                                  setLinkedUnlistDialog({
-                                    itemName: name,
-                                    parentTitles:
-                                      collectParentTitlesForLinkedName(
-                                        categoryItems,
-                                        name,
-                                      ),
-                                  });
+                        <div className="flex items-center gap-4">
+                          <div
+                            className="flex w-[46px] shrink-0 items-center"
+                            style={{ opacity: !row.item.status ? 2.5 : 1 }}
+                          >
+                            <Switch
+                              checked={row.item.status}
+                              onCheckedChange={(checked) => {
+                                const name = row.item.title;
+                                if (isLinkedStandaloneAndSub(categoryItems, name)) {
+                                  if (!checked) {
+                                    setLinkedUnlistDialog({
+                                      itemName: name,
+                                      parentTitles:
+                                        collectParentTitlesForLinkedName(
+                                          categoryItems,
+                                          name,
+                                        ),
+                                    });
+                                    return;
+                                  }
+                                  applyLinkedItemStatusEverywhere(name, true);
                                   return;
                                 }
-                                applyLinkedItemStatusEverywhere(name, true);
-                                return;
-                              }
-                              updateItem(row.item.id, { status: checked });
-                            }}
-                          />
+                                updateItem(row.item.id, { status: checked });
+                              }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="flex size-8 shrink-0 items-center justify-center rounded p-1 hover:bg-secondary"
+                          >
+                            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                          </button>
                         </div>
-                        <button className="flex aspect-square items-center justify-center rounded p-1 hover:bg-secondary">
-                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                        </button>
                       </div>
 
                       {row.item.addOns &&
                         row.item.addOns.length > 0 &&
-                        !keyword &&
-                        row.item.addOns.map((group, gi) => (
-                          <div
-                            key={gi}
-                            className="border-t border-border bg-secondary/30"
-                          >
-                            <div className="px-4 py-1.5">
-                              <span className="block pl-[60px] text-sm font-medium text-muted-foreground">
-                                {formatAddOnGroupListLabel(group, {
-                                  required: t("menuList.required"),
-                                  optional: t("menuList.addOnGroupOptionalTag"),
-                                })}
-                              </span>
-                            </div>
-                            {group.items.map((sub, si) => (
-                              <div key={si}>
+                        !keyword && (
+                          <div className="flex flex-col border-t border-border bg-[#F7F8FA]">
+                            {row.item.addOns.map((group, gi) => (
+                              <div
+                                key={gi}
+                                className={
+                                  gi > 0 ? "mt-[8px] border-t border-border" : undefined
+                                }
+                              >
                                 <div
-                                  className={`grid grid-cols-[1fr_160px_70px_30px] items-center gap-4 px-4 py-2 ${
-                                    !sub.status ? "text-muted-foreground/50" : ""
+                                  className={`grid items-center gap-6 px-4 pt-2 pb-1 ${
+                                    batchMode
+                                      ? "grid-cols-[32px_1fr_160px_auto]"
+                                      : "grid-cols-[1fr_160px_auto]"
                                   }`}
                                 >
-                                  <span className="text-sm pl-[60px]">
-                                    {sub.name}
-                                  </span>
-                                  <div className="flex min-w-0 w-full justify-end text-sm">
-                                    <PriceWithIcon
-                                      price={sub.deliveryPrice}
-                                      showTierIcon={showPriceTierIcon}
-                                    />
-                                  </div>
-                                  <div
-                                    className="flex justify-center"
-                                    style={{ opacity: !sub.status ? 2.5 : 1 }}
-                                  >
-                                    <Switch
-                                      checked={sub.status}
-                                      onCheckedChange={(checked) => {
-                                        if (
-                                          isLinkedStandaloneAndSub(
-                                            categoryItems,
-                                            sub.name,
-                                          )
-                                        ) {
-                                          /* 父菜下子项下架：直接同步，不二次确认 */
-                                          applyLinkedItemStatusEverywhere(
-                                            sub.name,
-                                            checked,
-                                          );
-                                          return;
-                                        }
-                                        const newAddOns = (row.item.addOns || []).map(
-                                          (g, gIdx) =>
-                                            gIdx === gi
-                                              ? {
-                                                  ...g,
-                                                  items: g.items.map((s, sIdx) =>
-                                                    sIdx === si
-                                                      ? { ...s, status: checked }
-                                                      : s,
-                                                  ),
-                                                }
-                                              : g,
-                                        );
-                                        updateItem(row.item.id, { addOns: newAddOns });
-                                      }}
-                                    />
-                                  </div>
-                                  <button className="rounded p-1 hover:bg-secondary">
-                                    <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                                  </button>
-                                </div>
-                                {sub.warning &&
-                                  sub.warning.includes("prohibited") && (
-                                    <p className="mb-1 text-xs text-destructive">
-                                      ⛔ {sub.warning}{" "}
-                                      <span className="cursor-pointer text-primary-foreground underline">
-                                        Go and view details ›
-                                      </span>
-                                    </p>
+                                  {batchMode && (
+                                    <div className="flex w-8 shrink-0 items-center justify-center" aria-hidden />
                                   )}
+                                  <div className="flex min-w-0 items-center gap-3">
+                                    <div
+                                      className="h-6 w-12 shrink-0 rounded-lg border border-transparent"
+                                      aria-hidden
+                                    />
+                                    <span className="block text-sm font-medium text-[#212121]">
+                                      {formatAddOnGroupListLabel(group, {
+                                        required: t("menuList.required"),
+                                        optional: t("menuList.addOnGroupOptionalTag"),
+                                      })}
+                                    </span>
+                                  </div>
+                                  <div />
+                                  <div />
+                                </div>
+                                {group.items.map((sub, si) => (
+                                  <div key={si}>
+                                    <div
+                                      className={`grid items-center gap-6 px-4 py-[2px] ${
+                                        batchMode
+                                          ? "grid-cols-[32px_1fr_160px_auto]"
+                                          : "grid-cols-[1fr_160px_auto]"
+                                      } ${
+                                        !sub.status ? "text-muted-foreground/50" : ""
+                                      }`}
+                                    >
+                                      {batchMode && (
+                                        <div className="flex w-8 shrink-0 items-center justify-center" aria-hidden />
+                                      )}
+                                      <div className="flex min-w-0 items-center gap-3">
+                                        <div className="h-6 w-12 shrink-0" aria-hidden />
+                                        <span className="truncate text-sm">{sub.name}</span>
+                                      </div>
+                                      <div className="flex min-w-0 w-full justify-end text-sm">
+                                        <PriceWithIcon
+                                          price={sub.deliveryPrice}
+                                          showTierIcon={showPriceTierIconForItem(
+                                            row.item.id,
+                                          )}
+                                        />
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                        <div
+                                          className="flex w-[46px] shrink-0 items-center"
+                                          style={{ opacity: !sub.status ? 2.5 : 1 }}
+                                        >
+                                          <Switch
+                                            checked={sub.status}
+                                            onCheckedChange={(checked) => {
+                                              if (
+                                                isLinkedStandaloneAndSub(
+                                                  categoryItems,
+                                                  sub.name,
+                                                )
+                                              ) {
+                                                applyLinkedItemStatusEverywhere(
+                                                  sub.name,
+                                                  checked,
+                                                );
+                                                return;
+                                              }
+                                              const newAddOns = (row.item.addOns || []).map(
+                                                (g, gIdx) =>
+                                                  gIdx === gi
+                                                    ? {
+                                                        ...g,
+                                                        items: g.items.map((s, sIdx) =>
+                                                          sIdx === si
+                                                            ? { ...s, status: checked }
+                                                            : s,
+                                                        ),
+                                                      }
+                                                    : g,
+                                              );
+                                              updateItem(row.item.id, { addOns: newAddOns });
+                                            }}
+                                          />
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className="flex size-8 shrink-0 items-center justify-center rounded p-1 hover:bg-secondary"
+                                        >
+                                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                    {sub.warning &&
+                                      sub.warning.includes("prohibited") && (
+                                        <div className="flex gap-6 px-4 pb-1">
+                                          {batchMode && (
+                                            <div className="w-8 shrink-0" aria-hidden />
+                                          )}
+                                          <div className="flex min-w-0 flex-1 items-start gap-3">
+                                            <div className="h-6 w-12 shrink-0" aria-hidden />
+                                            <p className="text-xs text-destructive">
+                                              ⛔ {sub.warning}{" "}
+                                              <span className="cursor-pointer text-primary-foreground underline">
+                                                Go and view details ›
+                                              </span>
+                                            </p>
+                                          </div>
+                                        </div>
+                                      )}
+                                  </div>
+                                ))}
                               </div>
                             ))}
                           </div>
-                        ))}
+                        )}
                     </div>
                   ) : row.type === "subGroupHeader" ? (
                     <div
                       key={`subgh-${row.parentItem.id}-${row.groupIdx}`}
-                      className={`border-t border-border bg-secondary/30 py-1.5 ${
-                        batchMode ? "pl-[92px] pr-4" : "pl-[60px] pr-4"
-                      }`}
+                      className="border-t border-border bg-secondary/30"
                     >
-                      <span className="text-sm font-medium text-muted-foreground">
-                        {formatAddOnGroupListLabel(row.group, {
-                          required: t("menuList.required"),
-                          optional: t("menuList.addOnGroupOptionalTag"),
-                        })}
-                      </span>
+                      <div
+                        className={`grid items-center gap-6 px-4 pt-2 pb-1 ${
+                          batchMode
+                            ? "grid-cols-[32px_1fr_160px_auto]"
+                            : "grid-cols-[1fr_160px_auto]"
+                        }`}
+                      >
+                        {batchMode && (
+                          <div className="flex w-8 shrink-0 items-center justify-center" aria-hidden />
+                        )}
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div
+                            className="h-6 w-12 shrink-0 rounded-lg border border-transparent"
+                            aria-hidden
+                          />
+                          <span className="text-sm font-medium text-[#212121]">
+                            {formatAddOnGroupListLabel(row.group, {
+                              required: t("menuList.required"),
+                              optional: t("menuList.addOnGroupOptionalTag"),
+                            })}
+                          </span>
+                        </div>
+                        <div />
+                        <div />
+                      </div>
                     </div>
                   ) : (
                     <div
                       key={`sub-${row.parentItem.id}-${row.groupIdx}-${row.subIdx}`}
-                      className={`grid items-center gap-4 px-4 py-3 ${
+                      className={`grid items-center gap-6 px-4 py-[2px] ${
                         batchMode
-                          ? "grid-cols-[32px_1fr_160px_70px_30px]"
-                          : "grid-cols-[1fr_160px_70px_30px]"
+                          ? "grid-cols-[32px_1fr_160px_auto]"
+                          : "grid-cols-[1fr_160px_auto]"
                       }`}
                     >
                       {batchMode && <div className="flex items-center justify-center" />}
                       <div className="flex items-center gap-3 min-w-0 pl-0">
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center" aria-hidden>
+                        <div className="flex h-6 w-12 shrink-0 items-center justify-center" aria-hidden>
                           <span className="w-12" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -1351,46 +1664,53 @@ const DishesListPage = () => {
                       >
                         <PriceWithIcon
                           price={row.sub.deliveryPrice}
-                          showTierIcon={showPriceTierIcon}
+                          showTierIcon={showPriceTierIconForItem(
+                            row.parentItem.id,
+                          )}
                         />
                       </div>
-                      <div
-                        className="flex justify-center"
-                        style={{ opacity: !row.sub.status ? 2.5 : 1 }}
-                      >
-                        <Switch
-                          checked={row.sub.status}
-                          onCheckedChange={(checked) => {
-                            if (
-                              isLinkedStandaloneAndSub(
-                                categoryItems,
-                                row.sub.name,
-                              )
-                            ) {
-                              applyLinkedItemStatusEverywhere(
-                                row.sub.name,
-                                checked,
+                      <div className="flex items-center gap-4">
+                        <div
+                          className="flex w-[46px] shrink-0 items-center"
+                          style={{ opacity: !row.sub.status ? 2.5 : 1 }}
+                        >
+                          <Switch
+                            checked={row.sub.status}
+                            onCheckedChange={(checked) => {
+                              if (
+                                isLinkedStandaloneAndSub(
+                                  categoryItems,
+                                  row.sub.name,
+                                )
+                              ) {
+                                applyLinkedItemStatusEverywhere(
+                                  row.sub.name,
+                                  checked,
+                                );
+                                return;
+                              }
+                              const newAddOns = (row.parentItem.addOns || []).map(
+                                (g, gIdx) =>
+                                  gIdx === row.groupIdx
+                                    ? {
+                                        ...g,
+                                        items: g.items.map((s, sIdx) =>
+                                          sIdx === row.subIdx ? { ...s, status: checked } : s,
+                                        ),
+                                      }
+                                    : g,
                               );
-                              return;
-                            }
-                            const newAddOns = (row.parentItem.addOns || []).map(
-                              (g, gIdx) =>
-                                gIdx === row.groupIdx
-                                  ? {
-                                      ...g,
-                                      items: g.items.map((s, sIdx) =>
-                                        sIdx === row.subIdx ? { ...s, status: checked } : s,
-                                      ),
-                                    }
-                                  : g,
-                            );
-                            updateItem(row.parentItem.id, { addOns: newAddOns });
-                          }}
-                        />
+                              updateItem(row.parentItem.id, { addOns: newAddOns });
+                            }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="flex size-8 shrink-0 items-center justify-center rounded p-1 hover:bg-secondary"
+                        >
+                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                        </button>
                       </div>
-                      <button className="flex aspect-square items-center justify-center rounded p-1 hover:bg-secondary">
-                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                      </button>
                     </div>
                   )
                   )}

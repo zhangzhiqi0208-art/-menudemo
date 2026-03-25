@@ -1392,22 +1392,15 @@ const NewItemPage = () => {
                   </div>
                 </div>
 
-                <div className="flex gap-3 rounded-lg bg-[#EFEFF2] p-3 text-sm">
+                <div className="flex items-center gap-3 rounded-lg bg-[#EFEFF2] p-3 text-sm">
                   <span
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-muted-foreground shadow-sm"
+                    className="flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full bg-white text-muted-foreground shadow-sm"
                     aria-hidden
                   >
-                    <TrendingUp className="h-4 w-4" />
+                    <TrendingUp className="h-3 w-3" />
                   </span>
-                  <div className="min-w-0 flex-1 space-y-1">
+                  <div className="min-w-0 flex-1">
                     <p className="leading-snug text-foreground">{t("newItem.comboDiscountTip")}</p>
-                    <button
-                      type="button"
-                      className="font-medium text-[hsl(30,100%,50%)] hover:underline"
-                      onClick={() => toast({ title: t("newItem.comboDiscountLearnMoreToast") })}
-                    >
-                      {t("newItem.comboDiscountLearnMore")}
-                    </button>
                   </div>
                 </div>
               </div>

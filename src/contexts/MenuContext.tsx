@@ -78,7 +78,7 @@ const initialItemsByCategory: Record<number, MenuItem[]> = {
       tags: [], deliveryPrice: "R$100.00", pickupPrice: "R$80.00", stock: "900", status: true,
       addOns: [
         {
-          name: "小食（必选）", required: true, min: "1", max: "1",
+          name: "小食", required: true, min: "1", max: "1",
           items: [
             { name: "炸鸡", deliveryPrice: "R$20.00", pickupPrice: "R$18.00", stock: "0", status: true, warning: "库存不足" },
           ],

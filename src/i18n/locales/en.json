@@ -51,6 +51,7 @@
     "underReview": "Under review",
     "inMarketingActivities": "In marketing activities",
     "cannotSoldIndependently": "Cannot be sold independently",
+    "addOnSection": "Add-on",
     "required": "Required",
     "editCategory": "Edit category",
     "deleteCategory": "Are you sure you want to delete?",
