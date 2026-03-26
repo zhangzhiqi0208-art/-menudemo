@@ -81,10 +81,10 @@ const initialItemsByCategory: Record<number, MenuItem[]> = {
   ],
   // 1: 🍟超值套餐
   1: [
-    { id: "1-1", title: "碎牛肉汉堡套餐", localeTitleKey: "builtin.items.1-1", image: "🍔", tags: [], deliveryPrice: "R$9999.99", pickupPrice: "R$9999.99", stock: "Unlimited", status: true, addOns: [] },
+    { id: "1-1", title: "碎牛肉汉堡套餐", localeTitleKey: "builtin.items.1-1", image: "🍔", tags: [], deliveryPrice: "R$9999.99", pickupPrice: "R$9999.99", stock: "Unlimited", status: true, itemType: "combo", addOns: [] },
     {
       id: "1-2", title: "N! 酥脆鸡块套餐", localeTitleKey: "builtin.items.1-2", image: "🍗",
-      tags: [], deliveryPrice: "R$100.00", pickupPrice: "R$80.00", stock: "900", status: true,
+      tags: [], deliveryPrice: "R$100.00", pickupPrice: "R$80.00", stock: "900", status: true, itemType: "combo",
       addOns: [
         {
           name: "小食", localeNameKey: "builtin.ag.1_2_0", required: true, min: "1", max: "1",
@@ -109,8 +109,8 @@ const initialItemsByCategory: Record<number, MenuItem[]> = {
         },
       ],
     },
-    { id: "1-3", title: "芝士汉堡120g套餐", localeTitleKey: "builtin.items.1-3", image: "🍔", tags: [], deliveryPrice: "R$100.00", pickupPrice: "R$80.00", stock: "900", status: false, addOns: [] },
-    { id: "1-4", title: "芝士汉堡180g套餐", localeTitleKey: "builtin.items.1-4", image: "🍔", tags: [], deliveryPrice: "R$100.00", pickupPrice: "R$80.00", stock: "0", status: true, addOns: [] },
+    { id: "1-3", title: "芝士汉堡120g套餐", localeTitleKey: "builtin.items.1-3", image: "🍔", tags: [], deliveryPrice: "R$100.00", pickupPrice: "R$80.00", stock: "900", status: false, itemType: "combo", addOns: [] },
+    { id: "1-4", title: "芝士汉堡180g套餐", localeTitleKey: "builtin.items.1-4", image: "🍔", tags: [], deliveryPrice: "R$100.00", pickupPrice: "R$80.00", stock: "0", status: true, itemType: "combo", addOns: [] },
   ],
   // 2: 🐮每日限量菜品～售完即止
   2: [

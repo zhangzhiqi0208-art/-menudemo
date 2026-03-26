@@ -211,7 +211,7 @@ const SubItemEditPage = () => {
           </div>
 
           <div className="flex gap-3 pt-4">
-            <Button className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground" onClick={handleSave}>
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={handleSave}>
               {t("newItem.save")}
             </Button>
             <Button variant="outline" onClick={() => navigate("/")}>

@@ -8,6 +8,7 @@ import {
 import {
   APP_VERSION_STORAGE_KEY,
   DEFAULT_APP_VERSION,
+  defaultListPathForVersion,
   isAppVersion,
   type AppVersion,
 } from "@/config/version";
@@ -30,15 +31,19 @@ type VersionContextValue = {
 const VersionContext = createContext<VersionContextValue | null>(null);
 
 export const VersionProvider = ({ children }: PropsWithChildren) => {
-  const [version, setVersionState] = useState<AppVersion>(readStoredVersion);
+  const [version] = useState<AppVersion>(readStoredVersion);
 
   const setVersion = (v: AppVersion) => {
-    setVersionState(v);
+    if (v === version) return;
     try {
       localStorage.setItem(APP_VERSION_STORAGE_KEY, v);
     } catch {
       /* ignore */
     }
+    /** 整页刷新：丢弃菜单等内存态，不落历史栈（replace），避免跨版本沿用操作结果 */
+    window.location.replace(
+      new URL(defaultListPathForVersion(v), window.location.origin).href,
+    );
   };
 
   useEffect(() => {

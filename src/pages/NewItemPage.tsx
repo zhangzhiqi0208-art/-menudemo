@@ -48,6 +48,7 @@ import {
   buildMenuItemPayload,
   mapAddOnsToModifierGroups,
   mapMenuItemToFormDraft,
+  stripCurrencyPrefix,
   stripOptionGroupNameSuffix,
 } from "@/domains/dishes/model/menuItemMappers";
 import { cn } from "@/lib/utils";
@@ -69,9 +70,48 @@ const parseLocaleNumber = (s: string): number => {
   return Number.isFinite(n) ? n : NaN;
 };
 
+/** 套餐原价/折后价等金额：去掉 R$ 再解析，避免沿用列表里的 R$ 前缀导致计算静默失败 */
+const parseMoneyAmount = (s: string): number => parseLocaleNumber(stripCurrencyPrefix(s));
+
 const formatMoneyForCombo = (n: number): string => {
   if (!Number.isFinite(n) || n < 0) return "";
   return (Math.round(n * 100) / 100).toFixed(2);
+};
+
+/** SSL「添加菜品」单菜卡片：份数>1 时展示（单价 * N）总价 */
+const formatSslAddDishesDeliveryDisplay = (
+  unitPriceRaw: string | undefined,
+  cardQty: number,
+  breakdownT: (k: string, o?: Record<string, string | number>) => string,
+): string => {
+  const unit = (unitPriceRaw ?? "").trim();
+  if (!unit) return "";
+  if (cardQty <= 1) return unit;
+  const n = parseMoneyAmount(unit);
+  if (!Number.isFinite(n) || n < 0) return unit;
+  const totalStr = `R$${formatMoneyForCombo(n * cardQty)}`;
+  return breakdownT("newItem.sslComboDeliveryBreakdown", {
+    unit,
+    qty: cardQty,
+    total: totalStr,
+  });
+};
+
+/** 将「添加菜品」下各卡片子项配送价（R$）加总；每组乘以稿面份数 cardQuantity */
+const sumModifierGroupItemsDeliveryPrices = (
+  groups: { items: { price: string }[]; cardQuantity?: string }[],
+): number => {
+  let t = 0;
+  for (const g of groups) {
+    let line = 0;
+    for (const it of g.items) {
+      const n = parseMoneyAmount(it.price);
+      if (Number.isFinite(n) && n > 0) line += n;
+    }
+    const qty = Math.max(1, parseInt(g.cardQuantity ?? "1", 10) || 1);
+    t += line * qty;
+  }
+  return t;
 };
 
 /** 由原价与折后价反推折扣率（0–100）后的展示字符串 */
@@ -88,28 +128,49 @@ const COMBO_DISCOUNT_PRESETS = [
   { percent: 30, titleKey: "newItem.comboPreset70Title", descKey: "newItem.comboPreset70Desc", recommended: false },
 ] as const;
 
+/** SSL 已保存选项组卡片标题（单菜展示菜名；多菜展示「组名 - 可选/必选 区间」） */
+const sslComboSavedCardTitle = (
+  group: { name: string; min: string; max: string; required: boolean; items: { name: string }[] },
+  t: (k: string, o?: Record<string, string | number>) => string,
+) => {
+  const rangeLabel = group.required
+    ? t("newItem.sslComboCardRangeRequired", { min: group.min, max: group.max })
+    : t("newItem.sslComboCardRangeOptional", { min: group.min, max: group.max });
+  if (group.items.length === 1) {
+    return group.items[0].name;
+  }
+  const stripped = stripOptionGroupNameSuffix(group.name).trim();
+  if (stripped) {
+    return `${stripped} - ${rangeLabel}`;
+  }
+  return `${t("newItem.newModifier")} - ${rangeLabel}`;
+};
+
 type SuffixInputProps = {
   value: string;
   onChange: (e: ChangeEvent<HTMLInputElement>) => void;
   placeholder: string;
   suffix: string;
   invalid?: boolean;
+  disabled?: boolean;
 };
 
 /** 与系统 Input 一致的描边，右侧后缀区与输入框竖线分隔 */
-const SuffixInput = ({ value, onChange, placeholder, suffix, invalid }: SuffixInputProps) => (
+const SuffixInput = ({ value, onChange, placeholder, suffix, invalid, disabled }: SuffixInputProps) => (
   <div
     className={cn(
       "flex min-h-10 overflow-hidden rounded-md border border-[#BABABF] bg-transparent transition-colors focus-within:border-black",
       invalid && "border-destructive focus-within:border-destructive",
+      disabled && "cursor-not-allowed bg-[#F2F2F5] opacity-90",
     )}
   >
     <Input
       value={value}
       onChange={onChange}
+      disabled={disabled}
       placeholder={placeholder}
       inputMode="decimal"
-      className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-base shadow-none placeholder:text-[#BABABF] focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none md:text-sm"
+      className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-base shadow-none placeholder:text-[#BABABF] focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none md:text-sm disabled:cursor-not-allowed disabled:opacity-100"
     />
     <div className="flex shrink-0 items-center border-l border-[#BABABF] bg-[#F2F2F5] px-3 text-sm font-medium text-muted-foreground">
       {suffix}
@@ -304,8 +365,14 @@ const NewItemPage = () => {
     typeof fromCategory === "number" && fromCategory >= 0 ? String(fromCategory) : "";
 
   const [itemType, setItemType] = useState<"items" | "combo">("items");
-  /** SSL 且为新建套餐时：份量与定价区块使用简化表单 */
-  const sslNewComboForm = version === "ssl" && !isEdit && itemType === "combo";
+  /** SSL 套餐（新建与编辑）：与新建页一致的套餐模式、添加菜品/选项组稿面等 */
+  const sslComboForm = version === "ssl" && itemType === "combo";
+  /** SSL 套餐：套餐模式（选项组 / 添加菜品），默认添加菜品 */
+  const [sslComboMode, setSslComboMode] = useState<"add_option_group" | "add_dishes">("add_dishes");
+  /** SSL + 「添加菜品」：设定原价由已添加菜品配送价加总且不可编辑 */
+  const sslComboAutoOriginalFromDishes = sslComboForm && sslComboMode === "add_dishes";
+  /** BR 套餐：折扣为空时不自动把折后价填成原价；用户输入折扣后按公式联动折后价 */
+  const brComboManualDiscountedPrice = version === "br" && itemType === "combo";
   /** BR：选项组「添加选项组」及卡片内/下拉中的文字操作按钮与图标 */
   const brOptionGroupActionClass = version === "br" ? "text-[#FF8C19]" : "text-primary";
   const [comboPortion, setComboPortion] = useState<ComboPortion>("single");
@@ -313,7 +380,6 @@ const NewItemPage = () => {
   const [comboDiscountPercent, setComboDiscountPercent] = useState("");
   const [discountPresetPanelOpen, setDiscountPresetPanelOpen] = useState(false);
   const discountComboFieldRef = useRef<HTMLDivElement>(null);
-  const prevItemTypeRef = useRef<"items" | "combo" | undefined>(undefined);
   const [itemName, setItemName] = useState("");
   const [pdvCode, setPdvCode] = useState("");
   const [description, setDescription] = useState("");
@@ -351,7 +417,15 @@ const NewItemPage = () => {
       setStockType(draft.stockType);
       setStockCount(draft.stockCount);
       setCanSoldSeparately(draft.canSoldSeparately);
-      setModifierGroups(mapAddOnsToModifierGroups(item.addOns));
+      const loadedGroups = mapAddOnsToModifierGroups(item.addOns);
+      setModifierGroups(loadedGroups);
+      if (version === "ssl" && draft.itemType === "combo") {
+        const inferredMode =
+          loadedGroups.length > 0 && loadedGroups.some((g) => g.items.length !== 1)
+            ? "add_option_group"
+            : "add_dishes";
+        setSslComboMode(inferredMode);
+      }
       const isImageUrl = typeof item.image === "string" && (/^(https?|blob|data):/.test(item.image) || (item.image.includes("/") && item.image.length > 4));
       setUploadedImage(isImageUrl ? item.image : null);
     } else {
@@ -359,21 +433,25 @@ const NewItemPage = () => {
       setComboOriginalPrice("");
       setComboDiscountPercent("");
       setModifierGroups([]);
+      setSslComboMode("add_dishes");
       setUploadedImage(null);
     }
-  }, [itemId]);
+  }, [itemId, version]);
 
-  /** 新建等可切换类型时：单品外卖价 → 切到套餐后写入设定原价；折后价不自动填充，由用户填写 */
+  const prevSslComboModeRef = useRef(sslComboMode);
+  /** SSL：从「添加菜品」切到「添加选项组」时，若仅有简化配送价，带入 BR 定价表单（原价 + 0% 折扣） */
   useEffect(() => {
-    if (!itemTypeLocked && prevItemTypeRef.current === "items" && itemType === "combo") {
-      const d = deliveryPrice.trim();
-      if (d) {
-        setComboOriginalPrice(d);
-      }
-      setDeliveryPrice("");
-    }
-    prevItemTypeRef.current = itemType;
-  }, [itemType, itemTypeLocked]);
+    const prev = prevSslComboModeRef.current;
+    prevSslComboModeRef.current = sslComboMode;
+    const enteredOptionGroup =
+      sslComboForm && sslComboMode === "add_option_group" && prev === "add_dishes";
+    if (!enteredOptionGroup) return;
+    if (comboOriginalPrice.trim()) return;
+    const d = deliveryPrice.trim();
+    if (!d) return;
+    setComboOriginalPrice(d);
+    setComboDiscountPercent("0");
+  }, [sslComboForm, sslComboMode, comboOriginalPrice, deliveryPrice]);
 
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [dragItem, setDragItem] = useState<{ groupId: string; idx: number } | null>(null);
@@ -396,38 +474,95 @@ const NewItemPage = () => {
     collapsed: boolean;
     items: ModifierGroupItem[];
     status: "unsaved" | "error" | "saved";
+    /** SSL 稿面：已保存卡片头部的份数，不影响保存状态 */
+    cardQuantity?: string;
   }
 
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
   const [linkExistingDishesOpen, setLinkExistingDishesOpen] = useState(false);
   const [linkExistingDishesGroupId, setLinkExistingDishesGroupId] = useState<string | null>(null);
+  /** append：向已有选项组追加；sslNewGroup：SSL「添加菜品」确认后新建一组并写入子项 */
+  const [linkExistingDishesMode, setLinkExistingDishesMode] = useState<"append" | "sslNewGroup" | null>(
+    null,
+  );
 
-  const linkExistingDishesNameSet = useMemo(() => {
-    if (!linkExistingDishesGroupId) return new Set<string>();
-    const g = modifierGroups.find((x) => x.id === linkExistingDishesGroupId);
-    return new Set((g?.items ?? []).map((i) => i.name.trim().toLowerCase()).filter(Boolean));
-  }, [linkExistingDishesGroupId, modifierGroups]);
+  const linkExistingDishesExistingNamesLower = useMemo(() => {
+    if (linkExistingDishesMode === "sslNewGroup") {
+      const s = new Set<string>();
+      for (const g of modifierGroups) {
+        for (const i of g.items) {
+          const n = i.name.trim().toLowerCase();
+          if (n) s.add(n);
+        }
+      }
+      return s;
+    }
+    if (linkExistingDishesMode === "append" && linkExistingDishesGroupId) {
+      const g = modifierGroups.find((x) => x.id === linkExistingDishesGroupId);
+      return new Set((g?.items ?? []).map((i) => i.name.trim().toLowerCase()).filter(Boolean));
+    }
+    return new Set<string>();
+  }, [linkExistingDishesMode, linkExistingDishesGroupId, modifierGroups]);
 
-  const handleLinkExistingDishesConfirm = useCallback((picks: LinkedDishPick[]) => {
-    if (!linkExistingDishesGroupId || picks.length === 0) return;
-    setModifierGroups((prev) =>
-      prev.map((g) =>
-        g.id === linkExistingDishesGroupId
-          ? {
-              ...g,
+  const handleLinkExistingDishesConfirm = useCallback(
+    (picks: LinkedDishPick[]) => {
+      if (picks.length === 0) return;
+
+      setModifierGroups((prev) => {
+        if (linkExistingDishesMode === "sslNewGroup") {
+          const base = Date.now();
+          /** SSL「添加菜品」：每选一道菜生成一张独立卡片（单菜一组），无需再点保存 */
+          return [
+            ...prev,
+            ...picks.map((p, i) => ({
+              id: `mg-${base}-${i}`,
+              name: p.name,
+              customId: "",
+              min: "1",
+              max: "1",
+              allowMultiple: false,
+              required: false,
+              collapsed: false,
+              cardQuantity: "1",
               items: [
-                ...g.items,
-                ...picks.map((p) => ({
+                {
                   name: p.name,
                   price: p.price,
-                  maxQty: "unlimited",
-                })),
+                  maxQty: "unlimited" as const,
+                },
               ],
-            }
-          : g,
-      ),
-    );
-  }, [linkExistingDishesGroupId]);
+              status: "saved" as const,
+            })),
+          ];
+        }
+        const gid = linkExistingDishesGroupId;
+        if (!gid) return prev;
+        return prev.map((g) =>
+          g.id === gid
+            ? {
+                ...g,
+                items: [
+                  ...g.items,
+                  ...picks.map((p) => ({
+                    name: p.name,
+                    price: p.price,
+                    maxQty: "unlimited" as const,
+                  })),
+                ],
+                status: "unsaved" as const,
+              }
+            : g,
+        );
+      });
+    },
+    [linkExistingDishesMode, linkExistingDishesGroupId],
+  );
+
+  const openSslAddDishesPicker = useCallback(() => {
+    setLinkExistingDishesMode("sslNewGroup");
+    setLinkExistingDishesGroupId(null);
+    setLinkExistingDishesOpen(true);
+  }, []);
 
   const addNewModifierGroup = () => {
     setModifierGroups((prev) => [
@@ -441,6 +576,7 @@ const NewItemPage = () => {
         allowMultiple: false,
         required: false,
         collapsed: false,
+        cardQuantity: "1",
         items: [],
         status: "unsaved" as const,
       },
@@ -480,6 +616,27 @@ const NewItemPage = () => {
     );
   };
 
+  /** 稿面份数仅影响展示与原价汇总，不改变「已保存」态，避免卡片退化为完整选项组形态 */
+  const bumpSslSavedCardQuantity = useCallback((id: string, delta: number) => {
+    setModifierGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== id) return g;
+        const cur = Math.max(1, parseInt(g.cardQuantity ?? "1", 10) || 1);
+        const next = Math.max(1, cur + delta);
+        return { ...g, cardQuantity: String(next) };
+      }),
+    );
+  }, []);
+
+  const setSslSavedCardQuantityInput = useCallback((id: string, raw: string) => {
+    const digits = raw.replace(/\D/g, "");
+    const n = digits ? parseInt(digits, 10) : NaN;
+    const v = Number.isFinite(n) && n > 0 ? n : 1;
+    setModifierGroups((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, cardQuantity: String(v) } : g)),
+    );
+  }, []);
+
   const handleLinkExistingGroupsConfirm = (selected: PresetOptionGroup[]) => {
     if (selected.length === 0) return;
     const base = Date.now();
@@ -499,6 +656,7 @@ const NewItemPage = () => {
         allowMultiple: false,
         required: preset.min > 0 && preset.min === preset.max,
         collapsed: false,
+        cardQuantity: "1",
         items: preset.modifiers.map((m) => ({
           name: m.name,
           price: toFormPrice(m.price),
@@ -578,14 +736,16 @@ const NewItemPage = () => {
           if (g.id !== newModifierTargetGroupId) return g;
           const newItems = [...g.items];
           newItems[newModifierEditIdx] = modItem;
-          return { ...g, items: newItems };
+          return { ...g, items: newItems, status: "unsaved" as const };
         }),
       );
     } else {
       // Create new
       setModifierGroups((prev) =>
         prev.map((g) =>
-          g.id === newModifierTargetGroupId ? { ...g, items: [...g.items, modItem] } : g,
+          g.id === newModifierTargetGroupId
+            ? { ...g, items: [...g.items, modItem], status: "unsaved" as const }
+            : g,
         ),
       );
     }
@@ -593,10 +753,100 @@ const NewItemPage = () => {
     setNewModifierDialogOpen(false);
   };
 
+  /** SSL 套餐：切换「添加选项组 / 添加菜品」时清空该字段下方的修改项与销售信息（保留基本信息区的名称、分类、图片等）。 */
+  const clearSslNewComboFormBelowComboMode = useCallback(() => {
+    setModifierGroups([]);
+    setComboOriginalPrice("");
+    setComboDiscountPercent("");
+    setDeliveryPrice("");
+    setDiscountPresetPanelOpen(false);
+    setLinkExistingGroupsDialogOpen(false);
+    setLinkExistingDishesOpen(false);
+    setLinkExistingDishesGroupId(null);
+    setLinkExistingDishesMode(null);
+    setDeleteGroupId(null);
+    setDragItem(null);
+    setNewModifierDialogOpen(false);
+    setNewModifierTargetGroupId("");
+    setNewModifierEditIdx(null);
+    setNewModifierName("");
+    setNewModifierCategory("");
+    setNewModifierDeliveryPrice("");
+    setNewModifierStockType("unlimited");
+    setNewModifierStockCount("");
+    setNewModifierMaxLimit("");
+    setRangeMaxFieldFocused(false);
+    setNewModifierCanSoldSeparately("yes");
+    setSubmitted(false);
+    setPickupEnabled(false);
+    setPickupPrice("");
+    setCanSoldSeparately("yes");
+    setSaleTimeType("allDay");
+  }, []);
+
+  /** 新建页切换单品/套餐：仅保留名称、门店分类、图片，其余恢复默认 */
+  const resetFormExceptNameCategoryImage = useCallback(() => {
+    setPdvCode("");
+    setDescription("");
+    setComboPortion("single");
+    setComboOriginalPrice("");
+    setComboDiscountPercent("");
+    setDiscountPresetPanelOpen(false);
+    setDeliveryEnabled(true);
+    setDeliveryPrice("");
+    setPickupEnabled(false);
+    setPickupPrice("");
+    setDidiEnabled(false);
+    setStockType("unlimited");
+    setStockCount("");
+    setCanSoldSeparately("yes");
+    setContainsAlcohol("no");
+    setSaleTimeType("allDay");
+    setSubmitted(false);
+    setImageDialogOpen(false);
+    setModifierGroups([]);
+    setSslComboMode("add_dishes");
+    setDeleteGroupId(null);
+    setDragItem(null);
+    setLinkExistingGroupsDialogOpen(false);
+    setLinkExistingDishesOpen(false);
+    setLinkExistingDishesGroupId(null);
+    setLinkExistingDishesMode(null);
+    setNewModifierDialogOpen(false);
+    setNewModifierTargetGroupId("");
+    setNewModifierEditIdx(null);
+    setNewModifierName("");
+    setNewModifierCategory("");
+    setNewModifierDeliveryPrice("");
+    setNewModifierStockType("unlimited");
+    setNewModifierStockCount("");
+    setNewModifierMaxLimit("");
+    setRangeMaxFieldFocused(false);
+    setNewModifierCanSoldSeparately("yes");
+  }, []);
+
+  const handleItemTypeChange = useCallback(
+    (next: "items" | "combo") => {
+      if (itemTypeLocked || next === itemType) return;
+      setItemType(next);
+      resetFormExceptNameCategoryImage();
+    },
+    [itemType, itemTypeLocked, resetFormExceptNameCategoryImage],
+  );
+
+  /** 由原价 + 折扣（减免 %，0–100）计算折后价：售价 = 原价 × (1 − d/100)。BR / SSL 添加菜品：折扣为空时不自动改写折后价。 */
   const recalcComboDeliveryFromOriginalAndDiscount = (orig: string, disc: string) => {
-    const o = parseLocaleNumber(orig);
+    const o = parseMoneyAmount(orig);
+    const dRaw = disc.trim();
     const d = parseLocaleNumber(disc);
-    if (!Number.isFinite(o) || o < 0 || !Number.isFinite(d) || d < 0 || d > 100) return;
+    if (!Number.isFinite(o) || o < 0) return;
+    if (dRaw === "") {
+      if (!sslComboAutoOriginalFromDishes && !brComboManualDiscountedPrice) {
+        setDeliveryPrice(formatMoneyForCombo(o));
+      }
+      return;
+    }
+    if (!Number.isFinite(d) || d < 0 || d > 100) return;
     setDeliveryPrice(formatMoneyForCombo(o * (1 - d / 100)));
   };
 
@@ -616,14 +866,78 @@ const NewItemPage = () => {
     const v = e.target.value;
     setDeliveryPrice(v);
     const trimmed = v.trim();
-    if (!trimmed) return;
-    const o = parseLocaleNumber(comboOriginalPrice);
-    const p = parseLocaleNumber(trimmed);
-    if (!Number.isFinite(o) || o <= 0 || !Number.isFinite(p) || p < 0 || p > o) return;
+    if (!trimmed) {
+      setComboDiscountPercent("");
+      return;
+    }
+    const o = parseMoneyAmount(comboOriginalPrice);
+    const p = parseMoneyAmount(trimmed);
+    if (!Number.isFinite(o) || o <= 0 || !Number.isFinite(p) || p < 0) return;
+    if (p > o + 1e-9) {
+      setComboDiscountPercent("");
+      return;
+    }
     const d = (1 - p / o) * 100;
     if (d < 0 || d > 100) return;
     setComboDiscountPercent(formatDiscountPercentFromRatio(d));
   };
+
+  useEffect(() => {
+    if (!sslComboAutoOriginalFromDishes) return;
+    const dishLineCount = modifierGroups.reduce((n, g) => n + g.items.length, 0);
+    /** 尚未添加任何子菜品时不覆盖原价（避免打断「单品→套餐」带入的设定原价） */
+    if (dishLineCount === 0) return;
+    const sum = sumModifierGroupItemsDeliveryPrices(modifierGroups);
+    const next = sum > 0 ? formatMoneyForCombo(sum) : "";
+    setComboOriginalPrice(next);
+    if (!next.trim()) {
+      setDeliveryPrice("");
+      setComboDiscountPercent("");
+    }
+    /** 添加菜品：仅联动设定原价，折后价由用户填写，不因汇总/折扣自动填充 */
+  }, [modifierGroups, sslComboAutoOriginalFromDishes]);
+
+  const sslAddDishesPrevLineCountRef = useRef(0);
+  useEffect(() => {
+    if (!sslComboAutoOriginalFromDishes) {
+      sslAddDishesPrevLineCountRef.current = 0;
+      return;
+    }
+    const dishLineCount = modifierGroups.reduce((n, g) => n + g.items.length, 0);
+    const prev = sslAddDishesPrevLineCountRef.current;
+    sslAddDishesPrevLineCountRef.current = dishLineCount;
+    /** 曾添加过菜品又全部删掉时，清空定价（避免沿用已删除菜品的加总） */
+    if (dishLineCount === 0 && prev > 0) {
+      setComboOriginalPrice("");
+      setComboDiscountPercent("");
+      setDeliveryPrice("");
+    }
+  }, [modifierGroups, sslComboAutoOriginalFromDishes]);
+
+  /** 套餐（BR / SSL）：折后价（配送侧）不得高于设定原价 */
+  const comboDiscountedExceedsOriginal = useMemo(() => {
+    if (itemType !== "combo") return false;
+    const dt = deliveryPrice.trim();
+    const ot = comboOriginalPrice.trim();
+    if (!dt || !ot) return false;
+    const o = parseMoneyAmount(ot);
+    const p = parseMoneyAmount(dt);
+    if (!Number.isFinite(o) || o <= 0 || !Number.isFinite(p)) return false;
+    return p > o + 1e-9;
+  }, [itemType, comboOriginalPrice, deliveryPrice]);
+
+  /** 折后价高于原价时清空折扣展示（与校验一致，BR/SSL 通用） */
+  useEffect(() => {
+    if (!comboDiscountedExceedsOriginal) return;
+    setComboDiscountPercent("");
+  }, [comboDiscountedExceedsOriginal]);
+
+  /** 套餐：折后价为空时折扣一并清空 */
+  useEffect(() => {
+    if (itemType !== "combo") return;
+    if (deliveryPrice.trim() !== "") return;
+    setComboDiscountPercent("");
+  }, [itemType, deliveryPrice]);
 
   const itemNameFieldRef = useRef<HTMLDivElement>(null);
   const categoryFieldRef = useRef<HTMLDivElement>(null);
@@ -632,7 +946,7 @@ const NewItemPage = () => {
   const handleSubmit = () => {
     const nameInvalid = !itemName.trim();
     const categoryInvalid = !selectedCategoryIdx;
-    const deliveryInvalid = !deliveryPrice.trim();
+    const deliveryInvalid = !deliveryPrice.trim() || comboDiscountedExceedsOriginal;
     const modifiersInvalid = modifierGroups.some((g) => g.status !== "saved");
 
     flushSync(() => {
@@ -696,8 +1010,8 @@ const NewItemPage = () => {
     const payload = buildMenuItemPayload({
       itemType,
       comboPortion,
-      comboOriginalPrice: sslNewComboForm ? deliveryPrice.trim() : comboOriginalPrice,
-      comboDiscountPercent: sslNewComboForm ? "0" : comboDiscountPercent,
+      comboOriginalPrice,
+      comboDiscountPercent,
       itemName,
       pdvCode,
       description,
@@ -811,13 +1125,13 @@ const NewItemPage = () => {
               value={itemType}
               onValueChange={(v) => {
                 if (itemTypeLocked) return;
-                setItemType(v as "items" | "combo");
+                handleItemTypeChange(v as "items" | "combo");
               }}
               className={cn("grid grid-cols-2 gap-3", itemTypeLocked && "pointer-events-none opacity-80")}
             >
               <div
                 role="presentation"
-                onClick={itemTypeLocked ? undefined : () => setItemType("items")}
+                onClick={itemTypeLocked ? undefined : () => handleItemTypeChange("items")}
                 className={cn(
                   "flex h-full min-h-0 flex-col justify-start rounded-lg border-2 p-4 text-left transition-colors",
                   itemTypeLocked ? "cursor-not-allowed" : "cursor-pointer",
@@ -838,7 +1152,7 @@ const NewItemPage = () => {
               </div>
               <div
                 role="presentation"
-                onClick={itemTypeLocked ? undefined : () => setItemType("combo")}
+                onClick={itemTypeLocked ? undefined : () => handleItemTypeChange("combo")}
                 className={cn(
                   "flex h-full min-h-0 flex-col justify-start rounded-lg border-2 p-4 text-left transition-colors",
                   itemTypeLocked ? "cursor-not-allowed" : "cursor-pointer",
@@ -962,50 +1276,32 @@ const NewItemPage = () => {
           {itemType === "combo" ? (
             <div>
               <label className="mb-2 block text-sm font-medium">{t("newItem.comboPortionPrompt")}</label>
-              {sslNewComboForm ? (
-                <Select
-                  value={comboPortion}
-                  onValueChange={(v) => setComboPortion(v as ComboPortion)}
-                >
-                  <SelectTrigger className="w-full max-w-md">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COMBO_PORTION_OPTIONS.map((op) => (
-                      <SelectItem key={op.id} value={op.id}>
-                        {t(op.labelKey)}（{t(op.rangeKey)}）
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <RadioGroup
-                  value={comboPortion}
-                  onValueChange={(v) => setComboPortion(v as ComboPortion)}
-                  className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
-                >
-                  {COMBO_PORTION_OPTIONS.map((op) => (
-                    <div
-                      key={op.id}
-                      role="presentation"
-                      onClick={() => setComboPortion(op.id)}
-                      className={cn(
-                        "relative flex min-h-[92px] cursor-pointer flex-col justify-start rounded-lg border bg-secondary/50 p-3 pt-3.5 text-left transition-colors",
-                        comboPortion === op.id ? "border-foreground" : "border-border hover:border-muted-foreground",
-                      )}
+              <RadioGroup
+                value={comboPortion}
+                onValueChange={(v) => setComboPortion(v as ComboPortion)}
+                className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+              >
+                {COMBO_PORTION_OPTIONS.map((op) => (
+                  <div
+                    key={op.id}
+                    role="presentation"
+                    onClick={() => setComboPortion(op.id)}
+                    className={cn(
+                      "relative flex min-h-[92px] cursor-pointer flex-col justify-start rounded-lg border bg-secondary/50 p-3 pt-3.5 text-left transition-colors",
+                      comboPortion === op.id ? "border-foreground" : "border-border hover:border-muted-foreground",
+                    )}
+                  >
+                    <RadioGroupItem value={op.id} id={`combo-portion-${op.id}`} className="absolute right-2.5 top-2.5 shrink-0" />
+                    <Label
+                      htmlFor={`combo-portion-${op.id}`}
+                      className="min-w-0 cursor-pointer pr-7 font-normal"
                     >
-                      <RadioGroupItem value={op.id} id={`combo-portion-${op.id}`} className="absolute right-2.5 top-2.5 shrink-0" />
-                      <Label
-                        htmlFor={`combo-portion-${op.id}`}
-                        className="min-w-0 cursor-pointer pr-7 font-normal"
-                      >
-                        <span className="block text-sm font-semibold leading-snug">{t(op.labelKey)}</span>
-                        <span className="mt-1 block text-xs text-muted-foreground">{t(op.rangeKey)}</span>
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              )}
+                      <span className="block text-sm font-semibold leading-snug">{t(op.labelKey)}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{t(op.rangeKey)}</span>
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
             </div>
           ) : null}
 
@@ -1060,7 +1356,46 @@ const NewItemPage = () => {
           {/* === MODIFICATIONS SECTION === */}
           <div ref={modificationsRef} className="space-y-6">
           <div>
-            <label className="mb-2 block text-sm font-medium">{t("newItem.modificationGroup")}</label>
+            {sslComboForm ? (
+              <>
+                <div className="mb-6 space-y-3">
+                  <label className="block text-sm font-semibold text-foreground">
+                    {t("newItem.comboMode")} <span className="text-destructive">*</span>
+                  </label>
+                  <RadioGroup
+                    value={sslComboMode}
+                    onValueChange={(v) => {
+                      const next = v as "add_option_group" | "add_dishes";
+                      if (sslComboForm && next !== sslComboMode) {
+                        clearSslNewComboFormBelowComboMode();
+                      }
+                      setSslComboMode(next);
+                    }}
+                    className="flex flex-wrap gap-x-8 gap-y-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="add_option_group" id="ssl-combo-mode-groups" />
+                      <Label htmlFor="ssl-combo-mode-groups" className="cursor-pointer font-normal">
+                        {t("newItem.comboModeAddOptionGroup")}
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="add_dishes" id="ssl-combo-mode-dishes" />
+                      <Label htmlFor="ssl-combo-mode-dishes" className="cursor-pointer font-normal">
+                        {t("newItem.comboModeAddDishes")}
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">
+                  {sslComboMode === "add_option_group"
+                    ? t("newItem.modificationGroup")
+                    : t("newItem.sslComboModificationsHeadingDishes")}
+                </label>
+              </>
+            ) : (
+              <label className="mb-2 block text-sm font-medium">{t("newItem.modificationGroup")}</label>
+            )}
 
             {/* Modifier group cards */}
             {modifierGroups.map((group) => {
@@ -1069,9 +1404,9 @@ const NewItemPage = () => {
                   ? "border-[hsl(340,82%,52%)]"
                   : group.status === "saved"
                     ? "border-border"
-                    : "border-[hsl(40,100%,50%)]";
+                    : "border-primary";
               const badgeBg =
-                group.status === "saved" ? "bg-[hsl(142,71%,45%)]" : "bg-[hsl(48,96%,53%)]";
+                group.status === "saved" ? "bg-[hsl(142,71%,45%)]" : "bg-primary";
               const badgeText = group.status === "saved" ? t("newItem.saved") : t("newItem.unsaved");
               const isDragDisabled = modifierGroups.length <= 1;
               const minVal = getMinValue(group.min);
@@ -1079,6 +1414,90 @@ const NewItemPage = () => {
               const allowMultipleDisabled = minVal === 1 && maxVal === 1;
               const reqDisabled = isRequiredDisabled(group.min, group.max);
               const reqForced = isRequiredForced(group.min);
+              /** SSL「添加菜品」仅单菜已保存组用摘要稿面；「添加选项组」始终与 BR 相同，走下方完整卡片 */
+              const sslSavedSummaryCard =
+                sslComboForm &&
+                sslComboMode === "add_dishes" &&
+                group.status === "saved" &&
+                group.items.length === 1;
+              const cardQty = Math.max(1, parseInt(group.cardQuantity ?? "1", 10) || 1);
+
+              if (sslSavedSummaryCard) {
+                return (
+                  <div
+                    key={group.id}
+                    className="mb-4 overflow-hidden rounded-lg border border-[#E8E8EC] bg-white shadow-sm"
+                  >
+                    <div className="flex items-center justify-between gap-3 border-b border-[#ECECEF] px-4 py-3">
+                      <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground">
+                        {sslComboSavedCardTitle(group, t)}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <div className="flex h-9 items-stretch overflow-hidden rounded-md border border-[#BABABF]">
+                          <button
+                            type="button"
+                            className="flex w-9 items-center justify-center bg-white text-base leading-none text-foreground hover:bg-[#F2F2F5] disabled:opacity-40"
+                            disabled={cardQty <= 1}
+                            onClick={() => bumpSslSavedCardQuantity(group.id, -1)}
+                            aria-label={t("newItem.sslComboCardQtyDec")}
+                          >
+                            −
+                          </button>
+                          <Input
+                            value={String(cardQty)}
+                            onChange={(e) => setSslSavedCardQuantityInput(group.id, e.target.value)}
+                            className="h-9 w-11 rounded-none border-0 border-x border-[#BABABF] px-1 text-center text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                            inputMode="numeric"
+                          />
+                          <button
+                            type="button"
+                            className="flex w-9 items-center justify-center bg-white text-base leading-none text-foreground hover:bg-[#F2F2F5]"
+                            onClick={() => bumpSslSavedCardQuantity(group.id, 1)}
+                            aria-label={t("newItem.sslComboCardQtyInc")}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteGroupId(group.id)}
+                          className="rounded p-1.5 hover:bg-secondary"
+                          aria-label="delete group"
+                        >
+                          <Trash2 className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleModifierCollapse(group.id)}
+                          className="rounded p-1.5 hover:bg-secondary"
+                          aria-label="toggle collapse"
+                        >
+                          {group.collapsed ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {!group.collapsed ? (
+                      <div className="bg-white">
+                        <div className="flex items-center justify-between gap-4 border-t border-[#ECECEF] px-4 py-3 text-sm">
+                          <span className="text-xs font-medium text-[#8E8E93]">{t("newItem.deliveryCol")}</span>
+                          <span className="min-w-0 text-right font-medium tabular-nums text-foreground">
+                            {formatSslAddDishesDeliveryDisplay(
+                              group.items[0]?.price,
+                              cardQty,
+                              t,
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              }
 
               return (
                 <div key={group.id} className={`mb-4 rounded-lg border-2 ${borderClass} bg-card`}>
@@ -1097,7 +1516,7 @@ const NewItemPage = () => {
                         className={cn(
                           badgeBg,
                           "rounded-[6px] border-transparent px-2.5 py-0.5 text-xs font-semibold hover:opacity-90",
-                          group.status === "saved" ? "text-white" : "text-foreground",
+                          group.status === "saved" ? "text-white" : "text-primary-foreground",
                         )}
                       >
                         {badgeText}
@@ -1241,7 +1660,7 @@ const NewItemPage = () => {
                                     if (g.id !== group.id) return g;
                                     const newItems = [...g.items];
                                     newItems[idx] = { ...newItems[idx], [field]: value };
-                                    return { ...g, items: newItems };
+                                    return { ...g, items: newItems, status: "unsaved" as const };
                                   }),
                                 );
                               }}
@@ -1250,7 +1669,11 @@ const NewItemPage = () => {
                                 setModifierGroups((prev) =>
                                   prev.map((g) => {
                                     if (g.id !== group.id) return g;
-                                    return { ...g, items: g.items.filter((_, i) => i !== idx) };
+                                    return {
+                                      ...g,
+                                      items: g.items.filter((_, i) => i !== idx),
+                                      status: "unsaved" as const,
+                                    };
                                   }),
                                 );
                               }}
@@ -1265,7 +1688,7 @@ const NewItemPage = () => {
                                       const [moved] = newItems.splice(dragItem.idx, 1);
                                       newItems.splice(idx, 0, moved);
                                       setDragItem({ groupId: group.id, idx });
-                                      return { ...g, items: newItems };
+                                      return { ...g, items: newItems, status: "unsaved" as const };
                                     }),
                                   );
                                 }
@@ -1281,6 +1704,7 @@ const NewItemPage = () => {
                         <button
                           type="button"
                           onClick={() => {
+                            setLinkExistingDishesMode("append");
                             setLinkExistingDishesGroupId(group.id);
                             setLinkExistingDishesOpen(true);
                           }}
@@ -1312,7 +1736,7 @@ const NewItemPage = () => {
                       <div className="mt-2 flex justify-end">
                         <Button
                           onClick={() => saveModifierGroup(group.id)}
-                          className="h-8 w-[88px] bg-[hsl(48,96%,53%)] px-2 text-foreground hover:bg-[hsl(48,96%,45%)]"
+                          className="h-8 w-[88px] bg-primary px-2 text-primary-foreground hover:bg-primary/90"
                         >
                           {t("newItem.save")}
                         </Button>
@@ -1323,55 +1747,76 @@ const NewItemPage = () => {
               );
             })}
 
-            {/* Add group button with hover dropdown */}
-            <div className="relative group">
+            {/* Add group：SSL+添加菜品为单笔触达式主按钮；其余为悬停下拉 */}
+            {sslComboForm && sslComboMode === "add_dishes" ? (
               <Button
+                type="button"
                 variant="outline"
-                className={cn("w-full gap-1", version === "br" && "text-[#212121] hover:text-[#212121]")}
+                onClick={openSslAddDishesPicker}
+                className={cn(
+                  "h-auto min-h-10 w-full gap-1 py-3",
+                  version === "br" && "text-[#212121] hover:text-[#212121]",
+                )}
               >
                 <Plus className="h-4 w-4" />
-                {t("newItem.addGroup")}
+                {t("newItem.sslComboAddDishesCta")}
               </Button>
-              <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-200 absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-border bg-card shadow-lg p-2 space-y-1">
-                <button
-                  onClick={addNewModifierGroup}
+            ) : (
+              <div className="relative group">
+                <Button
+                  variant="outline"
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
-                    brOptionGroupActionClass,
+                    "h-auto min-h-10 w-full gap-1 py-3",
+                    version === "br" && "text-[#212121] hover:text-[#212121]",
                   )}
                 >
-                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
-                    <Plus className="h-4 w-4" strokeWidth={2.25} />
-                  </span>
-                  {t("newItem.createNewGroup")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLinkExistingGroupsDialogOpen(true)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
-                    brOptionGroupActionClass,
-                  )}
-                >
-                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
-                    <Link2 className="h-4 w-4" strokeWidth={2.25} />
-                  </span>
-                  {t("newItem.selectExistingGroup")}
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
-                    brOptionGroupActionClass,
-                  )}
-                >
-                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
-                    <Copy className="h-4 w-4" strokeWidth={2.25} />
-                  </span>
-                  {t("newItem.copyOtherItemGroup")}
-                </button>
+                  <Plus className="h-4 w-4" />
+                  {sslComboForm && sslComboMode === "add_option_group"
+                    ? t("newItem.sslComboAddOptionGroupCta")
+                    : t("newItem.addGroup")}
+                </Button>
+                <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-200 absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-border bg-card shadow-lg p-2 space-y-1">
+                  <button
+                    type="button"
+                    onClick={addNewModifierGroup}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
+                      brOptionGroupActionClass,
+                    )}
+                  >
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+                      <Plus className="h-4 w-4" strokeWidth={2.25} />
+                    </span>
+                    {t("newItem.createNewGroup")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLinkExistingGroupsDialogOpen(true)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
+                      brOptionGroupActionClass,
+                    )}
+                  >
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+                      <Link2 className="h-4 w-4" strokeWidth={2.25} />
+                    </span>
+                    {t("newItem.selectExistingGroup")}
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary transition-colors",
+                      brOptionGroupActionClass,
+                    )}
+                  >
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+                      <Copy className="h-4 w-4" strokeWidth={2.25} />
+                    </span>
+                    {t("newItem.copyOtherItemGroup")}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
           </div>{/* end modifications section */}
 
@@ -1382,40 +1827,6 @@ const NewItemPage = () => {
             <label className="mb-1 block text-sm font-medium">{t("newItem.price")} <span className="text-destructive">*</span></label>
 
             {itemType === "combo" ? (
-              sslNewComboForm ? (
-                <div className="mb-3 space-y-4 rounded-lg bg-[#F9F9FC] p-4">
-                  <h3 className="text-[14px] font-semibold text-foreground">
-                    {t("newItem.sslComboDeliveryTitle")}
-                  </h3>
-                  <div ref={deliveryPriceFieldRef}>
-                    <label className="mb-1 block text-sm font-medium text-foreground">
-                      {t("newItem.sslComboSinglePriceLabel")}{" "}
-                      <span className="text-destructive">*</span>
-                    </label>
-                    <SuffixInput
-                      value={deliveryPrice}
-                      onChange={(e) => setDeliveryPrice(e.target.value)}
-                      placeholder={t("newItem.comboPricePlaceholder")}
-                      suffix="R$"
-                      invalid={submitted && !deliveryPrice.trim()}
-                    />
-                    {submitted && !deliveryPrice.trim() ? (
-                      <p className="mt-1 text-xs text-destructive">{t("newItem.deliveryPriceRequired")}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-3 rounded-lg bg-[#EFEFF2] p-3 text-sm">
-                    <span
-                      className="flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full bg-white text-muted-foreground shadow-sm"
-                      aria-hidden
-                    >
-                      <Info className="h-3 w-3" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="leading-snug text-foreground">{t("newItem.sslComboPriceHint")}</p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
               <div className="mb-3 space-y-4 rounded-lg bg-[#F9F9FC] p-4">
                 <h3 className="text-[14px] font-semibold text-foreground">{t("newItem.comboDeliverySection")}</h3>
 
@@ -1423,11 +1834,15 @@ const NewItemPage = () => {
                   <label className="mb-1 block text-sm font-medium text-foreground">
                     {t("newItem.comboSetOriginalPrice")}
                   </label>
+                  {sslComboAutoOriginalFromDishes ? (
+                    <p className="mb-2 text-xs text-muted-foreground">{t("newItem.sslComboOriginalAutoSumHint")}</p>
+                  ) : null}
                   <SuffixInput
                     value={comboOriginalPrice}
                     onChange={onComboOriginalChange}
                     placeholder={t("newItem.comboPricePlaceholder")}
                     suffix="R$"
+                    disabled={sslComboAutoOriginalFromDishes}
                   />
                 </div>
 
@@ -1466,7 +1881,7 @@ const NewItemPage = () => {
                             key={preset.percent}
                             type="button"
                             role="option"
-                            className="w-full border-b border-border px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-[#F2F2F5] focus:bg-[#F2F2F5] focus:outline-none"
+                            className="w-full border-b border-border px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-[#F7F7FA] focus:bg-[#F7F7FA] focus:outline-none"
                             onClick={() => {
                               const s = String(preset.percent);
                               setComboDiscountPercent(s);
@@ -1501,9 +1916,15 @@ const NewItemPage = () => {
                       onChange={onComboDiscountedChange}
                       placeholder={t("newItem.comboPricePlaceholder")}
                       suffix="R$"
-                      invalid={submitted && !deliveryPrice.trim()}
+                      invalid={
+                        comboDiscountedExceedsOriginal || (submitted && !deliveryPrice.trim())
+                      }
                     />
-                    {submitted && !deliveryPrice.trim() ? (
+                    {comboDiscountedExceedsOriginal ? (
+                      <p className="mt-1 text-xs text-destructive">
+                        {t("newItem.comboDiscountedExceedsOriginal")}
+                      </p>
+                    ) : submitted && !deliveryPrice.trim() ? (
                       <p className="mt-1 text-xs text-destructive">{t("newItem.deliveryPriceRequired")}</p>
                     ) : null}
                   </div>
@@ -1521,7 +1942,6 @@ const NewItemPage = () => {
                   </div>
                 </div>
               </div>
-              )
             ) : (
               <div ref={deliveryPriceFieldRef} className="mb-3 rounded-lg p-4 bg-[#F9F9FC]">
                 <div className="mb-2">
@@ -1762,7 +2182,7 @@ const NewItemPage = () => {
               </Button>
               <Button
                 onClick={handleNewModifierSubmit}
-                className="bg-[hsl(48,96%,53%)] text-foreground hover:bg-[hsl(48,96%,45%)]"
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 {t("menuList.ok")}
               </Button>
@@ -1782,10 +2202,13 @@ const NewItemPage = () => {
         open={linkExistingDishesOpen}
         onOpenChange={(open) => {
           setLinkExistingDishesOpen(open);
-          if (!open) setLinkExistingDishesGroupId(null);
+          if (!open) {
+            setLinkExistingDishesGroupId(null);
+            setLinkExistingDishesMode(null);
+          }
         }}
         excludeItemId={itemId}
-        existingNamesLower={linkExistingDishesNameSet}
+        existingNamesLower={linkExistingDishesExistingNamesLower}
         onConfirm={handleLinkExistingDishesConfirm}
       />
 

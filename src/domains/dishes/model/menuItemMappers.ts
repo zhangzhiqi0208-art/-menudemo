@@ -51,6 +51,7 @@ export type ModifierGroupForm = {
   collapsed: boolean;
   items: ModifierGroupItemForm[];
   status: "unsaved" | "error" | "saved";
+  cardQuantity?: string;
 };
 
 export type ModifierGroupItemForm = {
@@ -72,6 +73,7 @@ export const mapAddOnsToModifierGroups = (
     allowMultiple: false,
     required: group.required,
     collapsed: false,
+    cardQuantity: "1",
     items: group.items.map((sub: AddOnItem) => ({
       name: sub.name,
       price: sub.deliveryPrice || sub.pickupPrice || "R$0.00",
@@ -88,7 +90,7 @@ export const mapMenuItemToFormDraft = (
 ): DishFormDraft => ({
   itemType: item.itemType ?? "items",
   comboPortion: item.comboPortion ?? "single",
-  comboOriginalPrice: item.comboOriginalPrice ?? "",
+  comboOriginalPrice: stripCurrencyPrefix(item.comboOriginalPrice ?? ""),
   comboDiscountPercent: item.comboDiscountPercent ?? "",
   itemName: item.title,
   pdvCode: item.pdvCode || "",

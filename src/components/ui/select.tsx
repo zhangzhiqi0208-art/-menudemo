@@ -3,6 +3,7 @@ import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { dropdownOptionHighlightClassName } from "@/lib/dropdownPanelStyles";
 
 const Select = SelectPrimitive.Root;
 
@@ -36,7 +37,10 @@ const SelectScrollUpButton = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.ScrollUpButton
     ref={ref}
-    className={cn("flex cursor-default items-center justify-center py-1", className)}
+    className={cn(
+      "flex cursor-default items-center justify-center py-1 hover:bg-[#F7F7FA] focus:bg-[#F7F7FA] focus:outline-none",
+      className,
+    )}
     {...props}
   >
     <ChevronUp className="h-4 w-4" />
@@ -50,7 +54,10 @@ const SelectScrollDownButton = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.ScrollDownButton
     ref={ref}
-    className={cn("flex cursor-default items-center justify-center py-1", className)}
+    className={cn(
+      "flex cursor-default items-center justify-center py-1 hover:bg-[#F7F7FA] focus:bg-[#F7F7FA] focus:outline-none",
+      className,
+    )}
     {...props}
   >
     <ChevronDown className="h-4 w-4" />
@@ -105,7 +112,8 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 focus:bg-accent focus:text-accent-foreground",
+      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      dropdownOptionHighlightClassName,
       className,
     )}
     {...props}

@@ -149,9 +149,9 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
             <div>
               <Button
                 onClick={() => fileInputRef.current?.click()}
-                className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground font-medium px-6"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-6"
               >
-                <img src={uploadIconPng} alt="" className="h-4 w-4 mr-2" />
+                <img src={uploadIconPng} alt="" className="h-4 w-4" />
                 上传图片
               </Button>
             </div>
@@ -161,7 +161,7 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
                 <button
                   key={idx}
                   onClick={() => setActiveIndex(idx)}
-                  className={`relative aspect-square w-full overflow-hidden rounded-lg border-2 transition-colors ${idx === activeIndex ? "border-[hsl(48,96%,53%)]" : "border-transparent"}`}
+                  className={`relative aspect-square w-full overflow-hidden rounded-lg border-2 transition-colors ${idx === activeIndex ? "border-primary" : "border-transparent"}`}
                 >
                   <img src={img.url} alt="" className="h-full w-full object-cover" />
                   <img
@@ -180,7 +180,7 @@ const ImageUploadDialog = ({ open, onOpenChange, onImageSelected, initialImageUr
               <Button
                 onClick={handleConfirmSelection}
                 disabled={images.length === 0 || activeIndex < 0}
-                className="bg-[hsl(48,96%,53%)] hover:bg-[hsl(48,96%,45%)] text-foreground"
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 {t("menuList.ok")}
               </Button>

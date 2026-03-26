@@ -171,7 +171,7 @@ export function LinkExistingOptionGroupsDialog({
             <Button
               type="button"
               onClick={handleOk}
-              className="h-10 min-w-[88px] rounded-lg border-0 bg-[hsl(48,96%,53%)] text-foreground hover:bg-[hsl(48,96%,45%)]"
+              className="h-10 min-w-[88px] rounded-lg border-0 bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {t("newItem.linkExistingGroupOk")}
             </Button>

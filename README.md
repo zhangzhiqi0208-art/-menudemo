@@ -3,7 +3,7 @@
 - **仓库**: [zhangzhiqi0208-art/-menudemo](https://github.com/zhangzhiqi0208-art/-menudemo)  
 - **本地目录**: didi/menudemo（或你当前的工作目录）
 
-一个商家外卖菜品管理系统。当前包含：
+一个商家配送菜品管理系统。当前包含：
 
 - **原有实现**：纯 HTML/CSS/JavaScript，支持菜品新建、编辑、分类与列表（合并 React 前端后保留在 `legacy-demo/`）。
 - **合并后的前端**：来自 [bite-build-blog](https://github.com/zhangzhiqi0208-art/bite-build-blog) 的 Vite + React + TypeScript + shadcn-ui + Tailwind，用于交互与视觉样式。

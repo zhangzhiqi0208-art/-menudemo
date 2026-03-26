@@ -37,6 +37,7 @@ function flattenMenuItems(categoryItems: Record<number, MenuItem[]>): MenuItem[]
 }
 
 function rowDisabled(item: MenuItem): boolean {
+  if (item.itemType === "combo") return true;
   return (item.addOns?.length ?? 0) > 0;
 }
 
@@ -206,10 +207,14 @@ export function LinkExistingDishesDialog({
                       >
                         {r.label}
                       </div>
-                      <div className="mt-0.5 text-xs text-[#8E8E93]">{r.priceLine}</div>
+                      {!(r.disabled && r.item.itemType === "combo") ? (
+                        <div className="mt-0.5 text-xs text-[#8E8E93]">{r.priceLine}</div>
+                      ) : null}
                       {r.disabled ? (
                         <p className="mt-1 text-xs font-medium text-[hsl(28,92%,48%)]">
-                          {t("newItem.linkExistingSubItemsHasModifiersWarning")}
+                          {r.item.itemType === "combo"
+                            ? t("newItem.linkExistingSubItemsCannotAddCombo")
+                            : t("newItem.linkExistingSubItemsHasModifiersWarning")}
                         </p>
                       ) : null}
                     </div>
@@ -280,7 +285,7 @@ export function LinkExistingDishesDialog({
             <Button
               type="button"
               onClick={handleOk}
-              className="h-10 min-w-[88px] rounded-lg border-0 bg-[hsl(48,96%,53%)] font-semibold text-foreground hover:bg-[hsl(48,96%,45%)]"
+              className="h-10 min-w-[88px] rounded-lg border-0 bg-primary font-semibold text-primary-foreground hover:bg-primary/90"
             >
               {t("menuList.ok")}
             </Button>

@@ -28,6 +28,8 @@ import {
   Check,
   ChevronDown,
   X,
+  Copy,
+  Timer,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
@@ -65,6 +67,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { CategorySortDialog } from "@/components/CategorySortDialog";
 import { ItemSortDialog } from "@/components/ItemSortDialog";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
+import { useVersion } from "@/app/providers/VersionProvider";
 import { useMenu, type AddOnGroup, type AddOnItem, type Category, type MenuItem } from "@/contexts/MenuContext";
 import { formatAddOnGroupListLabel } from "@/domains/dishes/model/menuItemMappers";
 import {
@@ -75,7 +78,9 @@ import {
   displayItemTitle,
   displayLinkedMenuName,
 } from "@/i18n/builtinDisplay";
+import { popoverListRowHighlightClassName } from "@/lib/dropdownPanelStyles";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
 function isItemImageUrl(image: unknown): boolean {
   if (typeof image !== "string") return false;
@@ -119,12 +124,90 @@ function formatParentTitlesBracketed(parents: string[]): string {
   return parents.map((p) => `【${p}】`).join("");
 }
 
+/** SSL「添加菜品」套餐：各选项组仅含 1 道子菜（与表单侧推断一致），列表不展示组标题行 */
+function isSslComboAddDishesListLayout(
+  item: MenuItem,
+  version: "br" | "ssl",
+): boolean {
+  if (version !== "ssl" || item.itemType !== "combo") return false;
+  const groups = item.addOns;
+  if (!groups?.length) return false;
+  return groups.every((g) => g.items.length === 1);
+}
+
+function DishesListItemMoreMenu({
+  batchMode,
+  onEdit,
+  onDuplicate,
+  onSetActiveTime,
+  onDelete,
+}: {
+  batchMode: boolean;
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onSetActiveTime: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useTranslation();
+  const itemRowClass =
+    "cursor-pointer gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-foreground focus:text-foreground data-[highlighted]:bg-neutral-100 data-[highlighted]:text-foreground dark:data-[highlighted]:bg-muted";
+  const destructiveRowClass =
+    "cursor-pointer gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#E94260] focus:text-[#E94260] data-[highlighted]:bg-[#FFF0F3] data-[highlighted]:text-[#E94260] dark:text-[#FF6B7A] dark:data-[highlighted]:bg-red-950/40 dark:data-[highlighted]:text-[#FF6B7A]";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={batchMode}
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded p-1 hover:bg-secondary",
+            batchMode && "cursor-not-allowed opacity-40",
+          )}
+          aria-label={t("menuList.more")}
+        >
+          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={6}
+        className="w-[min(100vw-24px,240px)] rounded-2xl border border-border bg-card p-2 shadow-xl"
+      >
+        <DropdownMenuItem className={itemRowClass} onSelect={() => onEdit()}>
+          <Pencil className="h-4 w-4 shrink-0" strokeWidth={2} />
+          {t("menuList.edit")}
+        </DropdownMenuItem>
+        <DropdownMenuItem className={itemRowClass} onSelect={() => onDuplicate()}>
+          <Copy className="h-4 w-4 shrink-0" strokeWidth={2} />
+          {t("menuList.duplicateItem")}
+        </DropdownMenuItem>
+        <DropdownMenuItem className={itemRowClass} onSelect={() => onSetActiveTime()}>
+          <Timer className="h-4 w-4 shrink-0" strokeWidth={2} />
+          {t("menuList.setActiveTime")}
+        </DropdownMenuItem>
+        <DropdownMenuItem className={destructiveRowClass} onSelect={() => onDelete()}>
+          <Trash2 className="h-4 w-4 shrink-0 text-[#E94260] dark:text-[#FF6B7A]" strokeWidth={2} />
+          {t("menuList.delete")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 const DishesListPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
-  const { categories, setCategories, categoryItems, setCategoryItems, updateItem } =
-    useMenu();
+  const { version } = useVersion();
+  const {
+    categories,
+    setCategories,
+    categoryItems,
+    setCategoryItems,
+    updateItem,
+    addItem,
+  } = useMenu();
 
   const [linkedUnlistDialog, setLinkedUnlistDialog] = useState<{
     itemName: string;
@@ -178,6 +261,7 @@ const DishesListPage = () => {
   // Batch operations (remote capability)
   const [batchMode, setBatchMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [batchUnlistConfirmOpen, setBatchUnlistConfirmOpen] = useState(false);
 
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imageDialogItemId, setImageDialogItemId] = useState<string | null>(null);
@@ -191,6 +275,7 @@ const DishesListPage = () => {
   const exitBatchMode = () => {
     setBatchMode(false);
     setSelectedItems(new Set());
+    setBatchUnlistConfirmOpen(false);
   };
 
   const toggleItemSelection = (itemId: string) => {
@@ -257,6 +342,12 @@ const DishesListPage = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingCategoryIndex, setDeletingCategoryIndex] = useState<
     number | null
+  >(null);
+
+  const [itemDeleteDialog, setItemDeleteDialog] = useState<
+    | { kind: "main"; itemId: string }
+    | { kind: "sub"; parentId: string; groupIdx: number; subIdx: number }
+    | null
   >(null);
 
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -356,6 +447,96 @@ const DishesListPage = () => {
     setEditingPriceValue("");
     setEditingPriceError(false);
     setEditingPriceWarning(false);
+  };
+
+  const handleItemSetActiveTime = () => {
+    toast({ title: t("menuList.activeTimeToast") });
+  };
+
+  const duplicateMainItem = (item: MenuItem) => {
+    const newId = `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const clone: MenuItem = {
+      ...item,
+      id: newId,
+      localeTitleKey: undefined,
+      title: `${item.title} · ${t("menuList.duplicateItem")}`,
+      addOns: item.addOns?.map((g) => ({
+        ...g,
+        items: g.items.map((s) => ({ ...s })),
+      })),
+    };
+    addItem(selectedCategory, clone);
+  };
+
+  const duplicateAddonSubItem = (
+    parentId: string,
+    groupIdx: number,
+    subIdx: number,
+  ) => {
+    const parent = categoryItems[selectedCategory]?.find((i) => i.id === parentId);
+    const group = parent?.addOns?.[groupIdx];
+    const sub = group?.items[subIdx];
+    if (!parent || !group || !sub) return;
+    const copy: AddOnItem = {
+      ...sub,
+      name: `${sub.name} · ${t("menuList.duplicateItem")}`,
+      localeNameKey: undefined,
+      localeWarningKey: undefined,
+    };
+    const newItems = [...group.items];
+    newItems.splice(subIdx + 1, 0, copy);
+    const newAddOns = parent.addOns!.map((g, idx) =>
+      idx === groupIdx ? { ...g, items: newItems } : g,
+    );
+    updateItem(parentId, { addOns: newAddOns });
+  };
+
+  const removeMainItemById = (itemId: string) => {
+    setCategoryItems((prev) => ({
+      ...prev,
+      [selectedCategory]: (prev[selectedCategory] || []).filter((i) => i.id !== itemId),
+    }));
+    setCategories((prev) =>
+      prev.map((cat, idx) =>
+        idx === selectedCategory
+          ? { ...cat, count: Math.max(0, cat.count - 1) }
+          : cat,
+      ),
+    );
+    setSelectedItems((prev) => {
+      const next = new Set(prev);
+      next.delete(itemId);
+      return next;
+    });
+  };
+
+  const removeAddonSubItem = (
+    parentId: string,
+    groupIdx: number,
+    subIdx: number,
+  ) => {
+    const parent = categoryItems[selectedCategory]?.find((i) => i.id === parentId);
+    if (!parent?.addOns?.[groupIdx]) return;
+    const newAddOns = parent.addOns.map((g, gIdx) =>
+      gIdx !== groupIdx
+        ? g
+        : { ...g, items: g.items.filter((_, idx) => idx !== subIdx) },
+    );
+    updateItem(parentId, { addOns: newAddOns });
+  };
+
+  const confirmItemDelete = () => {
+    if (!itemDeleteDialog) return;
+    if (itemDeleteDialog.kind === "main") {
+      removeMainItemById(itemDeleteDialog.itemId);
+    } else {
+      removeAddonSubItem(
+        itemDeleteDialog.parentId,
+        itemDeleteDialog.groupIdx,
+        itemDeleteDialog.subIdx,
+      );
+    }
+    setItemDeleteDialog(null);
   };
 
   const handleEditCategory = (idx: number) => {
@@ -605,12 +786,14 @@ const DishesListPage = () => {
             itemIdToCategoryIndex.get(item.id) ?? selectedCategory;
           if (parentCatIdx === 1 && snackTitles.has(sub.name)) continue;
           if (!subGroupHeaderPushed) {
-            rows.push({
-              type: "subGroupHeader",
-              parentItem: item,
-              groupIdx: gi,
-              group,
-            });
+            if (!isSslComboAddDishesListLayout(item, version)) {
+              rows.push({
+                type: "subGroupHeader",
+                parentItem: item,
+                groupIdx: gi,
+                group,
+              });
+            }
             subGroupHeaderPushed = true;
           }
           rows.push({
@@ -624,7 +807,7 @@ const DishesListPage = () => {
       }
     }
     return rows;
-  }, [mainItems, keyword, selectedCategory, categoryItems, itemIdToCategoryIndex, t]);
+  }, [mainItems, keyword, selectedCategory, categoryItems, itemIdToCategoryIndex, t, version]);
 
   const filteredItems = mainItems;
 
@@ -904,7 +1087,12 @@ const DishesListPage = () => {
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-56 p-2">
                   <div className="max-h-60 space-y-0.5 overflow-y-auto">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent">
+                    <label
+                      className={cn(
+                        "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm",
+                        popoverListRowHighlightClassName,
+                      )}
+                    >
                       <Checkbox
                         checked={filterCategoryIndices.length === 0}
                         onCheckedChange={(checked) => {
@@ -916,7 +1104,10 @@ const DishesListPage = () => {
                     {categories.map((cat, idx) => (
                       <label
                         key={idx}
-                        className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                        className={cn(
+                          "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm",
+                          popoverListRowHighlightClassName,
+                        )}
                       >
                         <Checkbox
                           checked={filterCategoryIndices.includes(idx)}
@@ -1133,7 +1324,13 @@ const DishesListPage = () => {
               <div className="mb-2 flex items-center gap-2 rounded-lg px-4 py-2" style={{ backgroundColor: "#F9F9F9" }}>
                 <span
                   className={cn("text-sm", !hasSelection && "text-black")}
-                  style={hasSelection ? { color: "#CCB100" } : undefined}
+                  style={
+                    hasSelection
+                      ? {
+                          color: version === "ssl" ? "#CC490C" : "#CCB100",
+                        }
+                      : undefined
+                  }
                 >
                   {t("menuList.totalSelected")} {totalSelected}
                 </span>
@@ -1156,12 +1353,7 @@ const DishesListPage = () => {
                   size="sm"
                   disabled={!hasSelection}
                   className="h-8 gap-1 border-0 bg-transparent text-black shadow-none hover:bg-transparent hover:text-black enabled:[&_img]:brightness-0 enabled:[&_img]:opacity-100 disabled:text-[#8A8A91] disabled:opacity-100 disabled:hover:text-[#8A8A91] disabled:[&_img]:opacity-[0.54]"
-                  onClick={() => {
-                    selectedItems.forEach((id) =>
-                      updateItem(id, { status: false })
-                    );
-                    exitBatchMode();
-                  }}
+                  onClick={() => setBatchUnlistConfirmOpen(true)}
                 >
                   <img src={batchRemoveIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
                   {t("menuList.remove")}
@@ -1477,12 +1669,18 @@ const DishesListPage = () => {
                               }}
                             />
                           </div>
-                          <button
-                            type="button"
-                            className="flex size-8 shrink-0 items-center justify-center rounded p-1 hover:bg-secondary"
-                          >
-                            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                          </button>
+                          <DishesListItemMoreMenu
+                            batchMode={batchMode}
+                            onEdit={() => navigate(`/menu/edit/${row.item.id}`)}
+                            onDuplicate={() => duplicateMainItem(row.item)}
+                            onSetActiveTime={handleItemSetActiveTime}
+                            onDelete={() =>
+                              setItemDeleteDialog({
+                                kind: "main",
+                                itemId: row.item.id,
+                              })
+                            }
+                          />
                         </div>
                       </div>
 
@@ -1497,35 +1695,37 @@ const DishesListPage = () => {
                                   gi > 0 ? "mt-[8px] border-t border-border" : undefined
                                 }
                               >
-                                <div
-                                  className={`grid items-center px-4 pt-2 pb-1 ${
-                                    batchMode
-                                      ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
-                                      : "grid-cols-[1fr_160px_auto] gap-6"
-                                  }`}
-                                >
-                                  {batchMode && (
-                                    <div className="flex w-4 shrink-0 items-center justify-center" aria-hidden />
-                                  )}
-                                  <div className="flex min-w-0 items-center gap-3">
-                                    <div
-                                      className="h-6 w-12 shrink-0 rounded-lg border border-transparent"
-                                      aria-hidden
-                                    />
-                                    <span className="block text-sm font-medium text-[#212121]">
-                                      {formatAddOnGroupListLabel(
-                                        group,
-                                        {
-                                          required: t("menuList.required"),
-                                          optional: t("menuList.addOnGroupOptionalTag"),
-                                        },
-                                        displayAddonGroupName(group, t),
-                                      )}
-                                    </span>
+                                {!isSslComboAddDishesListLayout(row.item, version) ? (
+                                  <div
+                                    className={`grid items-center px-4 pt-2 pb-1 ${
+                                      batchMode
+                                        ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
+                                        : "grid-cols-[1fr_160px_auto] gap-6"
+                                    }`}
+                                  >
+                                    {batchMode && (
+                                      <div className="flex w-4 shrink-0 items-center justify-center" aria-hidden />
+                                    )}
+                                    <div className="flex min-w-0 items-center gap-3">
+                                      <div
+                                        className="h-6 w-12 shrink-0 rounded-lg border border-transparent"
+                                        aria-hidden
+                                      />
+                                      <span className="block text-sm font-medium text-[#212121]">
+                                        {formatAddOnGroupListLabel(
+                                          group,
+                                          {
+                                            required: t("menuList.required"),
+                                            optional: t("menuList.addOnGroupOptionalTag"),
+                                          },
+                                          displayAddonGroupName(group, t),
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div />
+                                    <div />
                                   </div>
-                                  <div />
-                                  <div />
-                                </div>
+                                ) : null}
                                 {group.items.map((sub, si) => (
                                   <div key={si}>
                                     <div
@@ -1591,12 +1791,26 @@ const DishesListPage = () => {
                                             }}
                                           />
                                         </div>
-                                        <button
-                                          type="button"
-                                          className="flex size-8 shrink-0 items-center justify-center rounded p-1 hover:bg-secondary"
-                                        >
-                                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                                        </button>
+                                        <DishesListItemMoreMenu
+                                          batchMode={batchMode}
+                                          onEdit={() =>
+                                            navigate(
+                                              `/menu/edit/sub/${row.item.id}/${gi}/${si}`,
+                                            )
+                                          }
+                                          onDuplicate={() =>
+                                            duplicateAddonSubItem(row.item.id, gi, si)
+                                          }
+                                          onSetActiveTime={handleItemSetActiveTime}
+                                          onDelete={() =>
+                                            setItemDeleteDialog({
+                                              kind: "sub",
+                                              parentId: row.item.id,
+                                              groupIdx: gi,
+                                              subIdx: si,
+                                            })
+                                          }
+                                        />
                                       </div>
                                     </div>
                                   </div>
@@ -1720,12 +1934,30 @@ const DishesListPage = () => {
                             }}
                           />
                         </div>
-                        <button
-                          type="button"
-                          className="flex size-8 shrink-0 items-center justify-center rounded p-1 hover:bg-secondary"
-                        >
-                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                        </button>
+                        <DishesListItemMoreMenu
+                          batchMode={batchMode}
+                          onEdit={() =>
+                            navigate(
+                              `/menu/edit/sub/${row.parentItem.id}/${row.groupIdx}/${row.subIdx}`,
+                            )
+                          }
+                          onDuplicate={() =>
+                            duplicateAddonSubItem(
+                              row.parentItem.id,
+                              row.groupIdx,
+                              row.subIdx,
+                            )
+                          }
+                          onSetActiveTime={handleItemSetActiveTime}
+                          onDelete={() =>
+                            setItemDeleteDialog({
+                              kind: "sub",
+                              parentId: row.parentItem.id,
+                              groupIdx: row.groupIdx,
+                              subIdx: row.subIdx,
+                            })
+                          }
+                        />
                       </div>
                     </div>
                   )
@@ -1736,6 +1968,45 @@ const DishesListPage = () => {
           </div>
         </div>
         )}
+
+        <Dialog
+          open={batchUnlistConfirmOpen}
+          onOpenChange={(open) => {
+            if (!open) setBatchUnlistConfirmOpen(false);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{t("menuList.batchUnlistConfirmTitle")}</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              {t("menuList.batchUnlistConfirmDescription", {
+                count: totalSelected,
+              })}
+            </p>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                variant="outline"
+                onClick={() => setBatchUnlistConfirmOpen(false)}
+              >
+                {t("menuList.cancel")}
+              </Button>
+              <Button
+                disabled={!hasSelection}
+                onClick={() => {
+                  selectedItems.forEach((id) =>
+                    updateItem(id, { status: false }),
+                  );
+                  setBatchUnlistConfirmOpen(false);
+                  exitBatchMode();
+                }}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {t("menuList.ok")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog
           open={linkedUnlistDialog != null}
@@ -1846,6 +2117,39 @@ const DishesListPage = () => {
               </Button>
               <Button
                 onClick={handleConfirmDelete}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {t("menuList.ok")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={itemDeleteDialog != null}
+          onOpenChange={(open) => {
+            if (!open) setItemDeleteDialog(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {itemDeleteDialog?.kind === "main"
+                  ? t("menuList.deleteItemTitle")
+                  : t("menuList.deleteSubItemTitle")}
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              {itemDeleteDialog?.kind === "main"
+                ? t("menuList.deleteItemDescription")
+                : t("menuList.deleteSubItemDescription")}
+            </p>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setItemDeleteDialog(null)}>
+                {t("menuList.cancel")}
+              </Button>
+              <Button
+                onClick={confirmItemDelete}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 {t("menuList.ok")}
