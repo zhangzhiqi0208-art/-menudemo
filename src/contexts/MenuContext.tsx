@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from "react";
+import { readStoredAppVersion } from "@/config/version";
+import { remapCategoryItemsForAppVersion } from "@/domains/dishes/model/menuItemMappers";
 import { BUILTIN_MENU_IMAGE_BY_ITEM_ID } from "./builtinMenuImages";
 
 export interface AddOnItem {
@@ -215,9 +217,10 @@ export const useMenu = () => {
 
 export const MenuProvider = ({ children }: { children: ReactNode }) => {
   const [categories, setCategories] = useState<Category[]>(initialCategories);
-  const [categoryItems, setCategoryItems] = useState<Record<number, MenuItem[]>>(() =>
-    normalizeLinkedSubStatusesToStandalone(applyBuiltinMenuImages(initialItemsByCategory)),
-  );
+  const [categoryItems, setCategoryItems] = useState<Record<number, MenuItem[]>>(() => {
+    const base = normalizeLinkedSubStatusesToStandalone(applyBuiltinMenuImages(initialItemsByCategory));
+    return remapCategoryItemsForAppVersion(base, readStoredAppVersion());
+  });
 
   const addItem = (categoryIndex: number, item: MenuItem) => {
     setCategoryItems(prev => ({

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AdminLayout from "@/components/AdminLayout";
 import emptyMenuImage from "@/assets/empty-menu.png";
+import sslEmptyMenuImage from "@/assets/SSL empty-menu.jpg";
 import noDishImagePlaceholder from "@/assets/无图菜品.jpg";
 import expensiveDishIcon from "@/assets/高价菜.svg";
 import affordableDishIcon from "@/assets/平价菜.svg";
@@ -69,7 +70,11 @@ import { ItemSortDialog } from "@/components/ItemSortDialog";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
 import { useVersion } from "@/app/providers/VersionProvider";
 import { useMenu, type AddOnGroup, type AddOnItem, type Category, type MenuItem } from "@/contexts/MenuContext";
-import { formatAddOnGroupListLabel } from "@/domains/dishes/model/menuItemMappers";
+import {
+  formatAddOnGroupListLabel,
+  formatPriceAmount,
+  stripCurrencyPrefix,
+} from "@/domains/dishes/model/menuItemMappers";
 import {
   BUILTIN_BURGER_CATEGORY_LOCALE_KEY,
   displayAddonGroupName,
@@ -200,6 +205,13 @@ const DishesListPage = () => {
   const location = useLocation();
   const { t } = useTranslation();
   const { version } = useVersion();
+  const emptyStateImage = version === "ssl" ? sslEmptyMenuImage : emptyMenuImage;
+  /** BR / SSL 共用同一占位尺寸，避免切换版本或不同素材比例时视觉大小漂移 */
+  const emptyStateIllustrationProps = {
+    width: 128,
+    height: 128,
+    className: "block size-[128px] shrink-0 object-contain object-center",
+  } as const;
   const {
     categories,
     setCategories,
@@ -251,12 +263,16 @@ const DishesListPage = () => {
     const cat = (location.state as { selectCategory?: number })?.selectCategory;
     return typeof cat === "number" && cat >= 0 ? cat : 0;
   });
+  /** 每次进入列表路由（含版本切换整页刷新、从 /menu/new 返回）：显式带上 selectCategory 则选中该分类，否则回到首个分类，避免仍停留在空分类上出现默认可空状态 */
   useEffect(() => {
-    const cat = (location.state as { selectCategory?: number })?.selectCategory;
+    const cat = (location.state as { selectCategory?: number } | null)
+      ?.selectCategory;
     if (typeof cat === "number" && cat >= 0) {
       setSelectedCategory(cat);
+      return;
     }
-  }, [location.state]);
+    setSelectedCategory(0);
+  }, [location.key, version]);
 
   // Batch operations (remote capability)
   const [batchMode, setBatchMode] = useState(false);
@@ -422,7 +438,7 @@ const DishesListPage = () => {
 
   const startEditPrice = (item: MenuItem) => {
     setEditingPriceItemId(item.id);
-    const raw = item.deliveryPrice.replace(/^R\$/, "");
+    const raw = stripCurrencyPrefix(item.deliveryPrice);
     setEditingPriceValue(raw);
     setEditingPriceError(false);
     setEditingPriceWarning(false);
@@ -436,7 +452,7 @@ const DishesListPage = () => {
     }
     if (editingPriceItemId) {
       updateItem(editingPriceItemId, {
-        deliveryPrice: `R$${editingPriceValue.trim()}`,
+        deliveryPrice: formatPriceAmount(editingPriceValue, version),
       });
     }
     cancelEditPrice();
@@ -845,7 +861,7 @@ const DishesListPage = () => {
   }, [filterCategoryIndices, categories, t]);
 
   const parseBRL = (price: string) => {
-    const raw = (price ?? "").replace(/^R\$\s?/, "").trim();
+    const raw = stripCurrencyPrefix(price ?? "").trim();
     if (!raw) return 0;
 
     const lastDot = raw.lastIndexOf(".");
@@ -1145,9 +1161,9 @@ const DishesListPage = () => {
         {keyword && !hasAnySearchResult ? (
           <div className="flex flex-1 flex-col items-center justify-center py-32">
             <img
-              src={emptyMenuImage}
+              src={emptyStateImage}
               alt="Empty menu"
-              className="h-32 w-32 object-contain"
+              {...emptyStateIllustrationProps}
             />
             <p className="mb-4 text-base font-semibold text-foreground">
               暂无搜索结果
@@ -1156,9 +1172,9 @@ const DishesListPage = () => {
         ) : hasActiveToolbarFilters && !hasAnyFilteredItemInMenu ? (
           <div className="flex flex-1 flex-col items-center justify-center py-32">
             <img
-              src={emptyMenuImage}
+              src={emptyStateImage}
               alt="Empty menu"
-              className="h-32 w-32 object-contain"
+              {...emptyStateIllustrationProps}
             />
             <p className="mb-4 text-base font-semibold text-foreground">
               暂无符合筛选条件的菜品
@@ -1439,9 +1455,9 @@ const DishesListPage = () => {
             {(filteredItems || []).length === 0 ? (
               <div className="flex flex-1 flex-col items-center justify-center py-20">
                 <img
-                  src={emptyMenuImage}
+                  src={emptyStateImage}
                   alt="Empty menu"
-                  className="h-32 w-32 object-contain"
+                  {...emptyStateIllustrationProps}
                 />
                 <p className="mb-4 text-base font-semibold text-foreground">
                   {keyword && !hasAnySearchResult
@@ -1453,7 +1469,7 @@ const DishesListPage = () => {
                 {!keyword && (
                   <Button
                     onClick={() => navigate("/menu/new", { state: { fromCategory: selectedCategory } })}
-                    className="bg-[hsl(50,100%,50%)] text-foreground hover:bg-[hsl(50,100%,45%)] font-medium"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
                   >
                     <Plus className="h-4 w-4 mr-1" />
                     {t("menuList.addItem")}
@@ -2055,7 +2071,7 @@ const DishesListPage = () => {
               </Button>
               <Button
                 type="button"
-                className="h-10 min-w-[100px] bg-[hsl(50,100%,50%)] font-semibold text-foreground hover:bg-[hsl(50,100%,45%)]"
+                className="h-10 min-w-[100px] bg-primary font-semibold text-primary-foreground hover:bg-primary/90"
                 onClick={confirmLinkedUnlist}
               >
                 {t("menuList.ok")}

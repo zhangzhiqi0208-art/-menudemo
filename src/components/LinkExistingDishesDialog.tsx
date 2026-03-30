@@ -5,7 +5,10 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useVersion } from "@/app/providers/VersionProvider";
+import type { AppVersion } from "@/config/version";
 import { useMenu, type MenuItem } from "@/contexts/MenuContext";
+import { formatPriceAmount } from "@/domains/dishes/model/menuItemMappers";
 import { displayItemTitle } from "@/i18n/builtinDisplay";
 
 const PAGE_SIZE = 7;
@@ -14,6 +17,8 @@ export type LinkedDishPick = {
   /** 当前语言下的展示名，写入表单子项名称 */
   name: string;
   price: string;
+  /** 来源菜单项 id，用于展开选项组快照 */
+  sourceItemId: string;
 };
 
 type LinkExistingDishesDialogProps = {
@@ -36,8 +41,10 @@ function flattenMenuItems(categoryItems: Record<number, MenuItem[]>): MenuItem[]
   return out;
 }
 
-function rowDisabled(item: MenuItem): boolean {
+function rowDisabled(item: MenuItem, version: AppVersion): boolean {
   if (item.itemType === "combo") return true;
+  /** BR：含选项组的菜作为子项关联易与层级冲突，禁用；SSL「添加菜品」仅需主菜价与名称，允许选择 */
+  if (version === "ssl") return false;
   return (item.addOns?.length ?? 0) > 0;
 }
 
@@ -49,6 +56,7 @@ export function LinkExistingDishesDialog({
   onConfirm,
 }: LinkExistingDishesDialogProps) {
   const { t } = useTranslation();
+  const { version } = useVersion();
   const { categoryItems } = useMenu();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -60,7 +68,7 @@ export function LinkExistingDishesDialog({
     const all = flattenMenuItems(categoryItems).filter((item) => item.id !== excludeItemId);
     const mapped = all.map((item) => {
       const label = displayItemTitle(item, t);
-      const disabled = rowDisabled(item);
+      const disabled = rowDisabled(item, version);
       return {
         id: item.id,
         item,
@@ -74,7 +82,7 @@ export function LinkExistingDishesDialog({
       : mapped;
     filtered.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
     return filtered;
-  }, [categoryItems, excludeItemId, search, t]);
+  }, [categoryItems, excludeItemId, search, t, version]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.max(1, Math.min(page, totalPages));
@@ -114,7 +122,8 @@ export function LinkExistingDishesDialog({
       if (existingNamesLower.has(name.toLowerCase())) continue;
       picks.push({
         name,
-        price: r.item.deliveryPrice?.trim() ? r.item.deliveryPrice : "R$0.00",
+        price: r.item.deliveryPrice?.trim() ? r.item.deliveryPrice : formatPriceAmount("", version),
+        sourceItemId: r.item.id,
       });
     }
     if (picks.length > 0) onConfirm(picks);

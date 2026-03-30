@@ -42,15 +42,25 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMenu, type ComboPortion } from "@/contexts/MenuContext";
-import { displayCategoryName } from "@/i18n/builtinDisplay";
+import {
+  displayAddonGroupName,
+  displayAddonItemName,
+  displayCategoryName,
+  displayLinkedMenuName,
+} from "@/i18n/builtinDisplay";
 import { toast } from "@/hooks/use-toast";
+import type { AddOnGroup } from "@/contexts/MenuContext";
 import {
   buildMenuItemPayload,
+  formatPriceAmount,
   mapAddOnsToModifierGroups,
   mapMenuItemToFormDraft,
+  parseSslComboLinkedChunks,
   stripCurrencyPrefix,
   stripOptionGroupNameSuffix,
+  type SslLinkedDishSnapshot,
 } from "@/domains/dishes/model/menuItemMappers";
+import { pricePrefixForVersion } from "@/config/version";
 import { cn } from "@/lib/utils";
 import { scrollFieldIntoViewInAdminMain } from "@/lib/scrollFieldIntoView";
 import { useVersion } from "@/app/providers/VersionProvider";
@@ -70,7 +80,7 @@ const parseLocaleNumber = (s: string): number => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-/** 套餐原价/折后价等金额：去掉 R$ 再解析，避免沿用列表里的 R$ 前缀导致计算静默失败 */
+/** 套餐原价/折后价等金额：去掉货币前缀再解析，避免沿用列表里的前缀导致计算静默失败 */
 const parseMoneyAmount = (s: string): number => parseLocaleNumber(stripCurrencyPrefix(s));
 
 const formatMoneyForCombo = (n: number): string => {
@@ -83,13 +93,14 @@ const formatSslAddDishesDeliveryDisplay = (
   unitPriceRaw: string | undefined,
   cardQty: number,
   breakdownT: (k: string, o?: Record<string, string | number>) => string,
+  pricePrefix: string,
 ): string => {
   const unit = (unitPriceRaw ?? "").trim();
   if (!unit) return "";
   if (cardQty <= 1) return unit;
   const n = parseMoneyAmount(unit);
   if (!Number.isFinite(n) || n < 0) return unit;
-  const totalStr = `R$${formatMoneyForCombo(n * cardQty)}`;
+  const totalStr = `${pricePrefix}${formatMoneyForCombo(n * cardQty)}`;
   return breakdownT("newItem.sslComboDeliveryBreakdown", {
     unit,
     qty: cardQty,
@@ -97,7 +108,7 @@ const formatSslAddDishesDeliveryDisplay = (
   });
 };
 
-/** 将「添加菜品」下各卡片子项配送价（R$）加总；每组乘以稿面份数 cardQuantity */
+/** 将「添加菜品」下各卡片子项配送价加总；每组乘以稿面份数 cardQuantity */
 const sumModifierGroupItemsDeliveryPrices = (
   groups: { items: { price: string }[]; cardQuantity?: string }[],
 ): number => {
@@ -199,6 +210,7 @@ interface SubItemRowProps {
   idx: number;
   groupId: string;
   totalItems: number;
+  pricePrefix: string;
   onUpdate: (field: "name" | "price" | "maxQty", value: string) => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -210,6 +222,7 @@ interface SubItemRowProps {
 const SubItemRow = ({
   item,
   totalItems,
+  pricePrefix,
   onUpdate,
   onDelete,
   onEdit,
@@ -224,7 +237,7 @@ const SubItemRow = ({
   const startEdit = (field: "name" | "price" | "maxQty") => {
     setEditingField(field);
     if (field === "price") {
-      setEditValue(item.price.replace("R$", ""));
+      setEditValue(stripCurrencyPrefix(item.price));
     } else if (field === "maxQty") {
       setEditValue(item.maxQty === "unlimited" || item.maxQty === "-" ? "" : item.maxQty);
     } else {
@@ -237,7 +250,7 @@ const SubItemRow = ({
     if (editingField === "name" && editValue.trim()) {
       onUpdate("name", editValue.trim());
     } else if (editingField === "price") {
-      onUpdate("price", editValue ? `R$${editValue}` : item.price);
+      onUpdate("price", editValue ? `${pricePrefix}${editValue}` : item.price);
     } else if (editingField === "maxQty") {
       const val = editValue.trim();
       onUpdate("maxQty", !val || val === "0" ? "unlimited" : val);
@@ -297,7 +310,7 @@ const SubItemRow = ({
             onKeyDown={handleKeyDown}
           />
           <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-            R$
+            {pricePrefix}
           </span>
         </div>
       ) : (
@@ -347,18 +360,49 @@ const SubItemRow = ({
   );
 };
 
+interface ModifierGroupItem {
+  name: string;
+  price: string;
+  maxQty: string;
+}
+
+interface ModifierGroup {
+  id: string;
+  name: string;
+  customId: string;
+  min: string;
+  max: string;
+  allowMultiple: boolean;
+  required: boolean;
+  collapsed: boolean;
+  items: ModifierGroupItem[];
+  status: "unsaved" | "error" | "saved";
+  /** SSL 稿面：已保存卡片头部的份数，不影响保存状态 */
+  cardQuantity?: string;
+  /** SSL：关联带选项组的菜时，嵌套选项组快照（保存时扁平写入套餐 addOns） */
+  sslLinkedDishSnapshot?: SslLinkedDishSnapshot;
+}
+
 const NewItemPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
   const { itemId } = useParams<{ itemId?: string }>();
-  const { categories, addItem, updateItem, moveItemToCategory, getItemById } = useMenu();
+  const {
+    categories,
+    categoryItems,
+    addItem,
+    updateItem,
+    moveItemToCategory,
+    getItemById,
+  } = useMenu();
 
   const isEdit = !!itemId;
   const existingData = isEdit ? getItemById(itemId) : null;
   /** 已保存菜品再次编辑时不允许改类型（单品/套餐） */
   const itemTypeLocked = isEdit && existingData !== null;
   const { version } = useVersion();
+  const pricePrefix = pricePrefixForVersion(version);
 
   const fromCategory = (location.state as { fromCategory?: number })?.fromCategory;
   const initialCategory =
@@ -417,7 +461,56 @@ const NewItemPage = () => {
       setStockType(draft.stockType);
       setStockCount(draft.stockCount);
       setCanSoldSeparately(draft.canSoldSeparately);
-      const loadedGroups = mapAddOnsToModifierGroups(item.addOns);
+      let loadedGroups: ModifierGroup[];
+      if (version === "ssl" && draft.itemType === "combo" && item.addOns?.length) {
+        const chunks = parseSslComboLinkedChunks(item);
+        if (chunks) {
+          loadedGroups = chunks.map((chunk, idx) => {
+            const mainSub = chunk.main.items[0];
+            const maxQty =
+              mainSub.stock === "999" || mainSub.stock === "Unlimited"
+                ? "unlimited"
+                : mainSub.stock || "-";
+            const snap: SslLinkedDishSnapshot | undefined =
+              chunk.nested.length > 0
+                ? {
+                    main: {
+                      name: mainSub.name,
+                      deliveryPrice: mainSub.deliveryPrice,
+                      pickupPrice: mainSub.pickupPrice?.trim()
+                        ? mainSub.pickupPrice
+                        : mainSub.deliveryPrice,
+                    },
+                    addOnGroups: structuredClone(chunk.nested) as AddOnGroup[],
+                  }
+                : undefined;
+            return {
+              id: `mg-ssl-${item.id}-${idx}`,
+              name: chunk.main.name,
+              customId: "",
+              min: chunk.main.min ?? "1",
+              max: chunk.main.max ?? "1",
+              allowMultiple: false,
+              required: chunk.main.required,
+              collapsed: false,
+              cardQuantity: "1",
+              items: [
+                {
+                  name: mainSub.name,
+                  price: mainSub.deliveryPrice || mainSub.pickupPrice || "",
+                  maxQty,
+                },
+              ],
+              status: "saved" as const,
+              sslLinkedDishSnapshot: snap,
+            };
+          });
+        } else {
+          loadedGroups = mapAddOnsToModifierGroups(item.addOns, version);
+        }
+      } else {
+        loadedGroups = mapAddOnsToModifierGroups(item.addOns, version);
+      }
       setModifierGroups(loadedGroups);
       if (version === "ssl" && draft.itemType === "combo") {
         const inferredMode =
@@ -457,27 +550,6 @@ const NewItemPage = () => {
   const [dragItem, setDragItem] = useState<{ groupId: string; idx: number } | null>(null);
   const [linkExistingGroupsDialogOpen, setLinkExistingGroupsDialogOpen] = useState(false);
 
-  interface ModifierGroupItem {
-    name: string;
-    price: string;
-    maxQty: string;
-  }
-
-  interface ModifierGroup {
-    id: string;
-    name: string;
-    customId: string;
-    min: string;
-    max: string;
-    allowMultiple: boolean;
-    required: boolean;
-    collapsed: boolean;
-    items: ModifierGroupItem[];
-    status: "unsaved" | "error" | "saved";
-    /** SSL 稿面：已保存卡片头部的份数，不影响保存状态 */
-    cardQuantity?: string;
-  }
-
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
   const [linkExistingDishesOpen, setLinkExistingDishesOpen] = useState(false);
   const [linkExistingDishesGroupId, setLinkExistingDishesGroupId] = useState<string | null>(null);
@@ -514,25 +586,42 @@ const NewItemPage = () => {
           /** SSL「添加菜品」：每选一道菜生成一张独立卡片（单菜一组），无需再点保存 */
           return [
             ...prev,
-            ...picks.map((p, i) => ({
-              id: `mg-${base}-${i}`,
-              name: p.name,
-              customId: "",
-              min: "1",
-              max: "1",
-              allowMultiple: false,
-              required: false,
-              collapsed: false,
-              cardQuantity: "1",
-              items: [
-                {
-                  name: p.name,
-                  price: p.price,
-                  maxQty: "unlimited" as const,
-                },
-              ],
-              status: "saved" as const,
-            })),
+            ...picks.map((p, i) => {
+              const src = p.sourceItemId ? getItemById(p.sourceItemId) : null;
+              const dish = src?.item;
+              const canonicalName = (dish?.title ?? p.name).trim();
+              let sslLinkedDishSnapshot: SslLinkedDishSnapshot | undefined;
+              if (dish?.addOns?.length) {
+                sslLinkedDishSnapshot = {
+                  main: {
+                    name: canonicalName,
+                    deliveryPrice: dish.deliveryPrice,
+                    pickupPrice: dish.pickupPrice?.trim() ? dish.pickupPrice : dish.deliveryPrice,
+                  },
+                  addOnGroups: structuredClone(dish.addOns) as AddOnGroup[],
+                };
+              }
+              return {
+                id: `mg-${base}-${i}`,
+                name: canonicalName,
+                customId: "",
+                min: "1",
+                max: "1",
+                allowMultiple: false,
+                required: false,
+                collapsed: false,
+                cardQuantity: "1",
+                items: [
+                  {
+                    name: canonicalName,
+                    price: p.price,
+                    maxQty: "unlimited" as const,
+                  },
+                ],
+                status: "saved" as const,
+                sslLinkedDishSnapshot,
+              };
+            }),
           ];
         }
         const gid = linkExistingDishesGroupId;
@@ -555,7 +644,7 @@ const NewItemPage = () => {
         );
       });
     },
-    [linkExistingDishesMode, linkExistingDishesGroupId],
+    [linkExistingDishesMode, linkExistingDishesGroupId, getItemById],
   );
 
   const openSslAddDishesPicker = useCallback(() => {
@@ -640,11 +729,8 @@ const NewItemPage = () => {
   const handleLinkExistingGroupsConfirm = (selected: PresetOptionGroup[]) => {
     if (selected.length === 0) return;
     const base = Date.now();
-    const toFormPrice = (raw: string) => {
-      const v = raw.replace(/^R\$\s?/i, "").trim();
-      if (!v) return "R$0.00";
-      return `R$${v}`;
-    };
+    const toFormPrice = (raw: string) =>
+      formatPriceAmount(stripCurrencyPrefix(raw), version);
     setModifierGroups((prev) => [
       ...prev,
       ...selected.map((preset, i) => ({
@@ -711,7 +797,7 @@ const NewItemPage = () => {
     setNewModifierEditIdx(idx);
     setNewModifierName(item.name);
     setNewModifierCategory("");
-    setNewModifierDeliveryPrice(item.price.replace("R$", ""));
+    setNewModifierDeliveryPrice(stripCurrencyPrefix(item.price));
     setNewModifierStockType(item.maxQty === "unlimited" || item.maxQty === "-" ? "unlimited" : "custom");
     setNewModifierStockCount(item.maxQty === "unlimited" || item.maxQty === "-" ? "" : item.maxQty);
     setNewModifierMaxLimit(maxQtyToRangeMaxInput(item.maxQty));
@@ -725,7 +811,7 @@ const NewItemPage = () => {
     const rangeNorm = normalizeSubItemRangeMax(newModifierMaxLimit);
     const modItem: ModifierGroupItem = {
       name: newModifierName.trim(),
-      price: newModifierDeliveryPrice ? `R$${newModifierDeliveryPrice}` : "R$0.00",
+      price: formatPriceAmount(newModifierDeliveryPrice, version),
       maxQty: rangeNorm === "" ? "unlimited" : rangeNorm,
     };
 
@@ -981,33 +1067,69 @@ const NewItemPage = () => {
 
     const catIdx = Number(selectedCategoryIdx);
     const existingAddOns = isEdit && existingData ? existingData.item.addOns : undefined;
-    // Convert modifier groups to AddOnGroup format, preserving sub-item status when editing
+    const subStatusFor = (groupName: string, subName: string) => {
+      const eg = existingAddOns?.find(
+        (x) => stripOptionGroupNameSuffix(x.name) === stripOptionGroupNameSuffix(groupName),
+      );
+      return eg?.items.find((s) => s.name === subName)?.status ?? true;
+    };
+    // Convert modifier groups to AddOnGroup format，SSL 嵌套关联菜展开为「主包装组 + 快照选项组」
     const addOns = modifierGroups
       .filter((g) => g.status === "saved")
-      .map((g) => {
+      .flatMap((g) => {
+        if (g.sslLinkedDishSnapshot) {
+          const snap = g.sslLinkedDishSnapshot;
+          const mainGroup: AddOnGroup = {
+            name: stripOptionGroupNameSuffix(g.name),
+            required: g.required,
+            min: g.min,
+            max: g.max,
+            items: [
+              {
+                name: snap.main.name,
+                deliveryPrice: snap.main.deliveryPrice,
+                pickupPrice: snap.main.pickupPrice,
+                stock: "999",
+                status: subStatusFor(g.name, snap.main.name),
+              },
+            ],
+          };
+          const nested = snap.addOnGroups.map((ag) => ({
+            ...ag,
+            name: stripOptionGroupNameSuffix(ag.name),
+            items: ag.items.map((sub) => ({
+              ...sub,
+              status: subStatusFor(ag.name, sub.name),
+            })),
+          }));
+          return [mainGroup, ...nested];
+        }
         const existingGroup = existingAddOns?.find(
           (eg) => stripOptionGroupNameSuffix(eg.name) === stripOptionGroupNameSuffix(g.name),
         );
-        return {
-          name: stripOptionGroupNameSuffix(g.name),
-          required: g.required,
-          min: g.min,
-          max: g.max,
-          items: g.items.map((modItem) => {
-            const existingSub = existingGroup?.items.find((es) => es.name === modItem.name);
-            const existingStatus = existingSub?.status ?? true;
-            return {
-              name: modItem.name,
-              deliveryPrice: modItem.price,
-              pickupPrice: modItem.price,
-              stock: modItem.maxQty === "unlimited" ? "999" : modItem.maxQty,
-              status: existingStatus,
-            };
-          }),
-        };
+        return [
+          {
+            name: stripOptionGroupNameSuffix(g.name),
+            required: g.required,
+            min: g.min,
+            max: g.max,
+            items: g.items.map((modItem) => {
+              const existingSub = existingGroup?.items.find((es) => es.name === modItem.name);
+              const existingStatus = existingSub?.status ?? true;
+              return {
+                name: modItem.name,
+                deliveryPrice: modItem.price,
+                pickupPrice: modItem.price,
+                stock: modItem.maxQty === "unlimited" ? "999" : modItem.maxQty,
+                status: existingStatus,
+              };
+            }),
+          },
+        ];
       });
 
     const payload = buildMenuItemPayload({
+      appVersion: version,
       itemType,
       comboPortion,
       comboOriginalPrice,
@@ -1428,9 +1550,10 @@ const NewItemPage = () => {
                     key={group.id}
                     className="mb-4 overflow-hidden rounded-lg border border-[#E8E8EC] bg-white shadow-sm"
                   >
-                    <div className="flex items-center justify-between gap-3 border-b border-[#ECECEF] px-4 py-3">
+                    <div className="flex items-center justify-between gap-3 px-4 py-3">
                       <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground">
-                        {sslComboSavedCardTitle(group, t)}
+                        {displayLinkedMenuName(categoryItems, group.items[0]?.name ?? "", t) ||
+                          sslComboSavedCardTitle(group, t)}
                       </span>
                       <div className="flex shrink-0 items-center gap-2">
                         <div className="flex h-9 items-stretch overflow-hidden rounded-md border border-[#BABABF]">
@@ -1483,16 +1606,56 @@ const NewItemPage = () => {
 
                     {!group.collapsed ? (
                       <div className="bg-white">
-                        <div className="flex items-center justify-between gap-4 border-t border-[#ECECEF] px-4 py-3 text-sm">
-                          <span className="text-xs font-medium text-[#8E8E93]">{t("newItem.deliveryCol")}</span>
+                        <div
+                          className={cn(
+                            "flex items-center justify-between gap-4 px-4 pb-3 pt-0 text-sm",
+                            group.sslLinkedDishSnapshot && "border-b border-[#ECECEF]",
+                          )}
+                        >
+                          <span className="text-xs font-medium text-[#8E8E93]">
+                            {t("newItem.deliveryCol")}
+                          </span>
                           <span className="min-w-0 text-right font-medium tabular-nums text-foreground">
                             {formatSslAddDishesDeliveryDisplay(
                               group.items[0]?.price,
                               cardQty,
                               t,
+                              pricePrefix,
                             )}
                           </span>
                         </div>
+                        {group.sslLinkedDishSnapshot ? (
+                          <div className="px-4 py-4">
+                            {group.sslLinkedDishSnapshot.addOnGroups.map((ag, gi) => {
+                              const rowCls =
+                                "grid gap-x-3 gap-y-0 border-t border-[#ECECEF] py-2.5 text-sm [grid-template-columns:minmax(0,1fr)_minmax(0,96px)] items-center";
+                              return (
+                                <div key={gi} className={cn(gi > 0 && "mt-3 border-t border-[#ECECEF] pt-3")}>
+                                  <div className="px-0 pb-2 text-sm font-semibold text-foreground">
+                                    {displayAddonGroupName(ag, t)}
+                                  </div>
+                                  <div
+                                    className="grid gap-x-3 gap-y-1 px-0 pb-1 text-xs font-medium text-[#8E8E93] [grid-template-columns:minmax(0,1fr)_minmax(0,96px)]"
+                                    role="row"
+                                  >
+                                    <span>{t("newItem.sslLinkedGridItemName")}</span>
+                                    <span className="text-right">{t("newItem.deliveryCol")}</span>
+                                  </div>
+                                  {ag.items.map((sub, si) => (
+                                    <div key={si} className={rowCls} role="row">
+                                      <span className="min-w-0 font-medium text-foreground">
+                                        {displayAddonItemName(sub, t)}
+                                      </span>
+                                      <span className="text-right tabular-nums text-foreground">
+                                        {sub.deliveryPrice}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -1654,6 +1817,7 @@ const NewItemPage = () => {
                               idx={idx}
                               groupId={group.id}
                               totalItems={group.items.length}
+                              pricePrefix={pricePrefix}
                               onUpdate={(field, value) => {
                                 setModifierGroups((prev) =>
                                   prev.map((g) => {
@@ -1841,7 +2005,7 @@ const NewItemPage = () => {
                     value={comboOriginalPrice}
                     onChange={onComboOriginalChange}
                     placeholder={t("newItem.comboPricePlaceholder")}
-                    suffix="R$"
+                    suffix={pricePrefix}
                     disabled={sslComboAutoOriginalFromDishes}
                   />
                 </div>
@@ -1915,7 +2079,7 @@ const NewItemPage = () => {
                       value={deliveryPrice}
                       onChange={onComboDiscountedChange}
                       placeholder={t("newItem.comboPricePlaceholder")}
-                      suffix="R$"
+                      suffix={pricePrefix}
                       invalid={
                         comboDiscountedExceedsOriginal || (submitted && !deliveryPrice.trim())
                       }
@@ -1958,7 +2122,7 @@ const NewItemPage = () => {
                     )}
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
-                    R$
+                    {pricePrefix}
                   </span>
                 </div>
                 {submitted && !deliveryPrice.trim() ? (
@@ -2091,7 +2255,7 @@ const NewItemPage = () => {
                     className="pr-10"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
-                    R$
+                    {pricePrefix}
                   </span>
                 </div>
               </div>
@@ -2195,6 +2359,7 @@ const NewItemPage = () => {
         open={linkExistingGroupsDialogOpen}
         onOpenChange={setLinkExistingGroupsDialogOpen}
         groups={PRESET_OPTION_GROUPS}
+        pricePrefix={pricePrefix}
         onConfirm={handleLinkExistingGroupsConfirm}
       />
 

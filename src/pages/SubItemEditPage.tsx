@@ -9,7 +9,10 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { useVersion } from "@/app/providers/VersionProvider";
 import { useMenu } from "@/contexts/MenuContext";
+import { pricePrefixForVersion } from "@/config/version";
+import { formatPriceAmount, stripCurrencyPrefix } from "@/domains/dishes/model/menuItemMappers";
 import {
   displayAddonGroupName,
   displayAddonItemName,
@@ -26,6 +29,8 @@ const SubItemEditPage = () => {
     subIdx: string;
   }>();
   const { t, i18n } = useTranslation();
+  const { version } = useVersion();
+  const pricePrefix = pricePrefixForVersion(version);
   const { getItemById, updateItem } = useMenu();
 
   const data = parentId ? getItemById(parentId) : null;
@@ -46,7 +51,7 @@ const SubItemEditPage = () => {
   useEffect(() => {
     if (subItem) {
       setName(subItem.localeNameKey ? t(subItem.localeNameKey) : subItem.name);
-      const rawPrice = subItem.deliveryPrice?.replace(/^R\$\s?/, "") || "";
+      const rawPrice = stripCurrencyPrefix(subItem.deliveryPrice ?? "") || "";
       setPrice(rawPrice);
       setStock(
         subItem.stock === "999" || subItem.stock === "Unlimited" ? "unlimited" : "custom"
@@ -70,7 +75,7 @@ const SubItemEditPage = () => {
     if (!parentItem || group === undefined || subItem === undefined) return;
 
     const stockVal = stock === "unlimited" ? "999" : stockCount || "0";
-    const formattedPrice = price.trim() ? `R$${price.trim()}` : "R$0.00";
+    const formattedPrice = formatPriceAmount(price, version);
 
     const trimmed = name.trim();
     let resolvedName: string;
@@ -174,7 +179,7 @@ const SubItemEditPage = () => {
                 placeholder={t("newItem.pleaseEnter")}
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                R$
+                {pricePrefix}
               </span>
             </div>
           </div>

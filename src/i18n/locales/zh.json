@@ -146,6 +146,7 @@
     "sslComboCardQtyDec": "减少份数",
     "sslComboCardQtyInc": "增加份数",
     "sslComboDeliveryBreakdown": "（{{unit}} * {{qty}}）{{total}}",
+    "sslLinkedGridItemName": "菜品名称",
     "comboDeliverySection": "配送",
     "comboSetOriginalPrice": "设定原价",
     "comboDiscount": "折扣",

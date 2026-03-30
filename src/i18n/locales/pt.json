@@ -146,6 +146,7 @@
     "sslComboCardQtyDec": "Diminuir quantidade",
     "sslComboCardQtyInc": "Aumentar quantidade",
     "sslComboDeliveryBreakdown": "({{unit}} * {{qty}}) {{total}}",
+    "sslLinkedGridItemName": "Nome do item",
     "comboDeliverySection": "Entrega",
     "comboSetOriginalPrice": "Definir preço original",
     "comboDiscount": "Desconto",

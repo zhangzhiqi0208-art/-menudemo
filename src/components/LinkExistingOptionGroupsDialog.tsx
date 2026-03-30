@@ -5,25 +5,28 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { PresetOptionGroup } from "@/data/presetOptionGroups";
+import { stripCurrencyPrefix } from "@/domains/dishes/model/menuItemMappers";
 
 type LinkExistingOptionGroupsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** 可选列表数据源，便于后续替换为接口数据 */
   groups: PresetOptionGroup[];
+  /** 与当前市场版本一致的价格前缀，如 R$ / MX$ */
+  pricePrefix: string;
   onConfirm: (selected: PresetOptionGroup[]) => void;
 };
 
-const normalizePriceDisplay = (raw: string): string => {
-  const t = raw.trim();
-  if (t.startsWith("R$")) return t.startsWith("R$ ") ? t : t.replace(/^R\$/, "R$ ");
-  return `R$ ${t}`;
+const normalizePriceDisplay = (raw: string, prefix: string): string => {
+  const core = stripCurrencyPrefix(raw).trim();
+  return core ? `${prefix} ${core}` : `${prefix} 0.00`;
 };
 
 export function LinkExistingOptionGroupsDialog({
   open,
   onOpenChange,
   groups,
+  pricePrefix,
   onConfirm,
 }: LinkExistingOptionGroupsDialogProps) {
   const { t } = useTranslation();
@@ -141,7 +144,7 @@ export function LinkExistingOptionGroupsDialog({
                             >
                               <span className="min-w-0 font-medium text-foreground">{m.name}</span>
                               <span className="shrink-0 tabular-nums text-[#8E8E93]">
-                                {normalizePriceDisplay(m.price)}
+                                {normalizePriceDisplay(m.price, pricePrefix)}
                               </span>
                             </div>
                           ))}

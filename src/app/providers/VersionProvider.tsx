@@ -7,21 +7,10 @@ import {
 } from "react";
 import {
   APP_VERSION_STORAGE_KEY,
-  DEFAULT_APP_VERSION,
   defaultListPathForVersion,
-  isAppVersion,
+  readStoredAppVersion,
   type AppVersion,
 } from "@/config/version";
-
-function readStoredVersion(): AppVersion {
-  try {
-    const v = localStorage.getItem(APP_VERSION_STORAGE_KEY);
-    if (isAppVersion(v)) return v;
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_APP_VERSION;
-}
 
 type VersionContextValue = {
   version: AppVersion;
@@ -31,7 +20,7 @@ type VersionContextValue = {
 const VersionContext = createContext<VersionContextValue | null>(null);
 
 export const VersionProvider = ({ children }: PropsWithChildren) => {
-  const [version] = useState<AppVersion>(readStoredVersion);
+  const [version] = useState<AppVersion>(readStoredAppVersion);
 
   const setVersion = (v: AppVersion) => {
     if (v === version) return;
