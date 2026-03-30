@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import AdminLayout from "@/components/AdminLayout";
 import emptyMenuImage from "@/assets/empty-menu.png";
 import sslEmptyMenuImage from "@/assets/SSL empty-menu.jpg";
@@ -74,6 +75,7 @@ import {
   formatAddOnGroupListLabel,
   formatPriceAmount,
   stripCurrencyPrefix,
+  stripOptionGroupNameSuffix,
 } from "@/domains/dishes/model/menuItemMappers";
 import {
   BUILTIN_BURGER_CATEGORY_LOCALE_KEY,
@@ -129,15 +131,41 @@ function formatParentTitlesBracketed(parents: string[]): string {
   return parents.map((p) => `【${p}】`).join("");
 }
 
-/** SSL「添加菜品」套餐：各选项组仅含 1 道子菜（与表单侧推断一致），列表不展示组标题行 */
-function isSslComboAddDishesListLayout(
-  item: MenuItem,
+/**
+ * SSL 套餐列表：某一选项组仅 1 道子菜且组名与菜名一致时，不展示该组标题行
+ * （避免「名称 +（可选1～1）」与下一行单品名重复；多选组如「小吃」仍保留标题）。
+ */
+function shouldHideSslComboSingleDishAddonHeader(
+  parentItem: MenuItem,
+  group: AddOnGroup,
   version: "br" | "ssl",
+  t: TFunction,
 ): boolean {
-  if (version !== "ssl" || item.itemType !== "combo") return false;
-  const groups = item.addOns;
-  if (!groups?.length) return false;
-  return groups.every((g) => g.items.length === 1);
+  if (version !== "ssl" || parentItem.itemType !== "combo") return false;
+  if (group.items.length !== 1) return false;
+  const groupBase = stripOptionGroupNameSuffix(displayAddonGroupName(group, t));
+  const itemBase = stripOptionGroupNameSuffix(
+    displayAddonItemName(group.items[0], t),
+  );
+  return groupBase === itemBase;
+}
+
+/**
+ * 列表路由 location.state.selectCategory：整页刷新 / 回退时 history.state 常仍保留旧值。
+ * 若索引已越界（删过分类、数据与 session 不一致等），须回落到 0，否则会无选中高亮且右侧 0 条菜品。
+ */
+function resolveCategoryIndexFromLocationState(
+  locationState: unknown,
+  categoryCount: number,
+): number {
+  if (categoryCount <= 0) return 0;
+  const max = categoryCount - 1;
+  const raw = (locationState as { selectCategory?: number } | null)
+    ?.selectCategory;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return 0;
+  const i = Math.trunc(raw);
+  if (i < 0 || i > max) return 0;
+  return i;
 }
 
 function DishesListItemMoreMenu({
@@ -259,20 +287,21 @@ const DishesListPage = () => {
     applyLinkedItemStatusEverywhere(linkedUnlistDialog.itemName, false);
     setLinkedUnlistDialog(null);
   };
-  const [selectedCategory, setSelectedCategory] = useState(() => {
-    const cat = (location.state as { selectCategory?: number })?.selectCategory;
-    return typeof cat === "number" && cat >= 0 ? cat : 0;
-  });
-  /** 每次进入列表路由（含版本切换整页刷新、从 /menu/new 返回）：显式带上 selectCategory 则选中该分类，否则回到首个分类，避免仍停留在空分类上出现默认可空状态 */
+  const [selectedCategory, setSelectedCategory] = useState(() =>
+    resolveCategoryIndexFromLocationState(location.state, categories.length),
+  );
+  /** 仅随「新历史记录 / 版本切换」同步：依赖勿含 categories.length，否则新建分类后会误用旧的 history.state 覆盖当前选中项 */
   useEffect(() => {
-    const cat = (location.state as { selectCategory?: number } | null)
-      ?.selectCategory;
-    if (typeof cat === "number" && cat >= 0) {
-      setSelectedCategory(cat);
-      return;
-    }
-    setSelectedCategory(0);
+    setSelectedCategory(
+      resolveCategoryIndexFromLocationState(location.state, categories.length),
+    );
   }, [location.key, version]);
+
+  useEffect(() => {
+    if (categories.length <= 0) return;
+    const max = categories.length - 1;
+    setSelectedCategory((prev) => (prev > max ? 0 : prev));
+  }, [categories.length]);
 
   // Batch operations (remote capability)
   const [batchMode, setBatchMode] = useState(false);
@@ -802,7 +831,7 @@ const DishesListPage = () => {
             itemIdToCategoryIndex.get(item.id) ?? selectedCategory;
           if (parentCatIdx === 1 && snackTitles.has(sub.name)) continue;
           if (!subGroupHeaderPushed) {
-            if (!isSslComboAddDishesListLayout(item, version)) {
+            if (!shouldHideSslComboSingleDishAddonHeader(item, group, version, t)) {
               rows.push({
                 type: "subGroupHeader",
                 parentItem: item,
@@ -1708,10 +1737,19 @@ const DishesListPage = () => {
                               <div
                                 key={gi}
                                 className={
-                                  gi > 0 ? "mt-[8px] border-t border-border" : undefined
+                                  gi > 0
+                                    ? version === "ssl" && row.item.itemType === "combo"
+                                      ? "border-t border-border"
+                                      : "mt-[8px] border-t border-border"
+                                    : undefined
                                 }
                               >
-                                {!isSslComboAddDishesListLayout(row.item, version) ? (
+                                {!shouldHideSslComboSingleDishAddonHeader(
+                                  row.item,
+                                  group,
+                                  version,
+                                  t,
+                                ) ? (
                                   <div
                                     className={`grid items-center px-4 pt-2 pb-1 ${
                                       batchMode
@@ -1727,7 +1765,7 @@ const DishesListPage = () => {
                                         className="h-6 w-12 shrink-0 rounded-lg border border-transparent"
                                         aria-hidden
                                       />
-                                      <span className="block text-sm font-medium text-[#212121]">
+                                      <span className="block text-sm font-normal text-[#212121]">
                                         {formatAddOnGroupListLabel(
                                           group,
                                           {
@@ -1745,7 +1783,12 @@ const DishesListPage = () => {
                                 {group.items.map((sub, si) => (
                                   <div key={si}>
                                     <div
-                                      className={`grid items-center px-4 py-[2px] ${
+                                      className={`grid items-center px-4 ${
+                                        version === "ssl" &&
+                                        row.item.itemType === "combo"
+                                          ? "py-2"
+                                          : "py-[2px]"
+                                      } ${
                                         batchMode
                                           ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
                                           : "grid-cols-[1fr_160px_auto] gap-6"
@@ -1758,7 +1801,17 @@ const DishesListPage = () => {
                                       )}
                                       <div className="flex min-w-0 items-center gap-3">
                                         <div className="h-6 w-12 shrink-0" aria-hidden />
-                                        <span className="truncate text-sm">
+                                        <span
+                                          className={cn(
+                                            "truncate text-sm",
+                                            shouldHideSslComboSingleDishAddonHeader(
+                                              row.item,
+                                              group,
+                                              version,
+                                              t,
+                                            ) && "font-semibold",
+                                          )}
+                                        >
                                           {displayAddonItemName(sub, t)}
                                         </span>
                                       </div>
@@ -1856,7 +1909,7 @@ const DishesListPage = () => {
                             className="h-6 w-12 shrink-0 rounded-lg border border-transparent"
                             aria-hidden
                           />
-                          <span className="text-sm font-medium text-[#212121]">
+                          <span className="text-sm font-normal text-[#212121]">
                             {formatAddOnGroupListLabel(
                               row.group,
                               {
@@ -1874,7 +1927,12 @@ const DishesListPage = () => {
                   ) : (
                     <div
                       key={`sub-${row.parentItem.id}-${row.groupIdx}-${row.subIdx}`}
-                      className={`grid items-center px-4 py-[2px] ${
+                      className={`grid items-center px-4 ${
+                        version === "ssl" &&
+                        row.parentItem.itemType === "combo"
+                          ? "py-2"
+                          : "py-[2px]"
+                      } ${
                         batchMode
                           ? "grid-cols-[16px_1fr_160px_auto] gap-x-4 gap-y-0"
                           : "grid-cols-[1fr_160px_auto] gap-6"
@@ -1889,9 +1947,19 @@ const DishesListPage = () => {
                         </div>
                         <div className="min-w-0 flex-1">
                           <p
-                            className={`text-sm font-medium cursor-pointer hover:underline truncate ${
-                              !row.sub.status ? "text-muted-foreground/50" : ""
-                            }`}
+                            className={cn(
+                              "text-sm cursor-pointer hover:underline truncate",
+                              row.parentItem.addOns?.[row.groupIdx] &&
+                                shouldHideSslComboSingleDishAddonHeader(
+                                  row.parentItem,
+                                  row.parentItem.addOns[row.groupIdx],
+                                  version,
+                                  t,
+                                )
+                                ? "font-semibold"
+                                : "font-medium",
+                              !row.sub.status && "text-muted-foreground/50",
+                            )}
                             onClick={() =>
                               navigate(
                                 `/menu/edit/sub/${row.parentItem.id}/${row.groupIdx}/${row.subIdx}`
