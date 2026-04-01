@@ -19,6 +19,7 @@ import {
   ThumbsUp,
 } from "lucide-react";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
+import { AddCategoryDialog } from "@/components/AddCategoryDialog";
 import { LinkExistingOptionGroupsDialog } from "@/components/LinkExistingOptionGroupsDialog";
 import { LinkExistingDishesDialog, type LinkedDishPick } from "@/components/LinkExistingDishesDialog";
 import { PRESET_OPTION_GROUPS, type PresetOptionGroup } from "@/data/presetOptionGroups";
@@ -35,7 +36,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -64,6 +72,10 @@ import { pricePrefixForVersion } from "@/config/version";
 import { cn } from "@/lib/utils";
 import { scrollFieldIntoViewInAdminMain } from "@/lib/scrollFieldIntoView";
 import { useVersion } from "@/app/providers/VersionProvider";
+
+/** 下拉内「新建分类」项的 value；不得写入真实选中态，仅用于在 onValueChange 里拦截并打开弹窗 */
+const SELECT_ITEM_ADD_CATEGORY = "__add_category__";
+const SELECT_ITEM_ADD_CATEGORY_MODIFIER = "__add_category_modifier__";
 
 const COMBO_PORTION_OPTIONS: { id: ComboPortion; labelKey: string; rangeKey: string }[] = [
   { id: "single", labelKey: "newItem.comboPortionSingle", rangeKey: "newItem.comboPortionRange1" },
@@ -390,7 +402,9 @@ const NewItemPage = () => {
   const { itemId } = useParams<{ itemId?: string }>();
   const {
     categories,
+    setCategories,
     categoryItems,
+    setCategoryItems,
     addItem,
     updateItem,
     moveItemToCategory,
@@ -441,6 +455,10 @@ const NewItemPage = () => {
   const [submitted, setSubmitted] = useState(false);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [addCategoryDialogOpen, setAddCategoryDialogOpen] = useState(false);
+  const [addCategoryName, setAddCategoryName] = useState("");
+  const [addCategoryForModifier, setAddCategoryForModifier] = useState(false);
+  const addCategoryInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (existingData) {
@@ -774,6 +792,52 @@ const NewItemPage = () => {
   const [newModifierMaxLimit, setNewModifierMaxLimit] = useState("");
   const [rangeMaxFieldFocused, setRangeMaxFieldFocused] = useState(false);
   const [newModifierCanSoldSeparately, setNewModifierCanSoldSeparately] = useState("yes");
+
+  const handleConfirmAddCategory = () => {
+    const trimmed = addCategoryName.trim();
+    if (!trimmed) return;
+    const newIdx = categories.length;
+    setCategories((prev) => [...prev, { name: trimmed, count: 0 }]);
+    setCategoryItems((prev) => ({ ...prev, [newIdx]: [] }));
+    if (addCategoryForModifier) {
+      setNewModifierCategory(String(newIdx));
+    } else {
+      setSelectedCategoryIdx(String(newIdx));
+    }
+    setAddCategoryDialogOpen(false);
+    setAddCategoryName("");
+  };
+
+  const onMainCategoryValueChange = useCallback((v: string) => {
+    if (v === SELECT_ITEM_ADD_CATEGORY) {
+      setAddCategoryForModifier(false);
+      setAddCategoryName("");
+      setAddCategoryDialogOpen(true);
+      return;
+    }
+    setSelectedCategoryIdx(v);
+  }, []);
+
+  const onModifierCategoryValueChange = useCallback((v: string) => {
+    if (v === SELECT_ITEM_ADD_CATEGORY_MODIFIER) {
+      setAddCategoryForModifier(true);
+      setAddCategoryName("");
+      setAddCategoryDialogOpen(true);
+      return;
+    }
+    setNewModifierCategory(v);
+  }, []);
+
+  /** 若误将「新建分类」项写入选中值（Radix 部分场景下 preventDefault 无效），清掉以恢复占位或原逻辑 */
+  useEffect(() => {
+    if (selectedCategoryIdx === SELECT_ITEM_ADD_CATEGORY) setSelectedCategoryIdx("");
+  }, [selectedCategoryIdx]);
+
+  useEffect(() => {
+    if (newModifierCategory === SELECT_ITEM_ADD_CATEGORY_MODIFIER) {
+      setNewModifierCategory("");
+    }
+  }, [newModifierCategory]);
 
   const openNewModifierDialog = (groupId: string) => {
     setNewModifierTargetGroupId(groupId);
@@ -1379,7 +1443,7 @@ const NewItemPage = () => {
                 </Tooltip>
               </TooltipProvider>
             </label>
-            <Select value={selectedCategoryIdx} onValueChange={setSelectedCategoryIdx}>
+            <Select value={selectedCategoryIdx} onValueChange={onMainCategoryValueChange}>
               <SelectTrigger className={submitted && !selectedCategoryIdx ? "border-destructive focus:ring-destructive" : ""}>
                 <SelectValue placeholder={t("newItem.pleaseSelect")} />
               </SelectTrigger>
@@ -1389,6 +1453,16 @@ const NewItemPage = () => {
                     {displayCategoryName(cat, t)}
                   </SelectItem>
                 ))}
+                <SelectSeparator />
+                <SelectItem
+                  value={SELECT_ITEM_ADD_CATEGORY}
+                  className="text-[#FF8C19] focus:bg-[#FFF5EB] data-[highlighted]:bg-[#FFF5EB] data-[highlighted]:text-[#FF8C19]"
+                >
+                  <span className="flex items-center gap-2">
+                    <Plus className="h-4 w-4 shrink-0" strokeWidth={2} />
+                    {t("menuList.addCategory")}
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
             {submitted && !selectedCategoryIdx && <p className="mt-1 text-xs text-destructive">{t("newItem.categoryRequired")}</p>}
@@ -2226,7 +2300,7 @@ const NewItemPage = () => {
                   </Tooltip>
                 </TooltipProvider>
               </label>
-              <Select value={newModifierCategory} onValueChange={setNewModifierCategory}>
+              <Select value={newModifierCategory} onValueChange={onModifierCategoryValueChange}>
                 <SelectTrigger>
                   <SelectValue placeholder={t("newItem.pleaseSelect")} />
                 </SelectTrigger>
@@ -2236,6 +2310,16 @@ const NewItemPage = () => {
                       {displayCategoryName(cat, t)}
                     </SelectItem>
                   ))}
+                  <SelectSeparator />
+                  <SelectItem
+                    value={SELECT_ITEM_ADD_CATEGORY_MODIFIER}
+                    className="text-[#FF8C19] focus:bg-[#FFF5EB] data-[highlighted]:bg-[#FFF5EB] data-[highlighted]:text-[#FF8C19]"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Plus className="h-4 w-4 shrink-0" strokeWidth={2} />
+                      {t("menuList.addCategory")}
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2354,6 +2438,15 @@ const NewItemPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AddCategoryDialog
+        open={addCategoryDialogOpen}
+        onOpenChange={setAddCategoryDialogOpen}
+        name={addCategoryName}
+        onNameChange={setAddCategoryName}
+        onConfirm={handleConfirmAddCategory}
+        inputRef={addCategoryInputRef}
+      />
 
       <LinkExistingOptionGroupsDialog
         open={linkExistingGroupsDialogOpen}

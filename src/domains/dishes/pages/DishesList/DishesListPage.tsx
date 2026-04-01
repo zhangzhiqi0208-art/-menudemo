@@ -69,6 +69,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { CategorySortDialog } from "@/components/CategorySortDialog";
 import { ItemSortDialog } from "@/components/ItemSortDialog";
 import ImageUploadDialog from "@/components/ImageUploadDialog";
+import { AddCategoryDialog } from "@/components/AddCategoryDialog";
 import { useVersion } from "@/app/providers/VersionProvider";
 import { useMenu, type AddOnGroup, type AddOnItem, type Category, type MenuItem } from "@/contexts/MenuContext";
 import {
@@ -675,10 +676,6 @@ const DishesListPage = () => {
       .filter(Boolean);
     setCategoryItems((prev) => ({ ...prev, [selectedCategory]: newItems }));
   };
-
-  useEffect(() => {
-    if (addDialogOpen && addInputRef.current) addInputRef.current.focus();
-  }, [addDialogOpen]);
 
   useEffect(() => {
     if (editDialogOpen && inputRef.current) {
@@ -2242,44 +2239,14 @@ const DishesListPage = () => {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t("menuList.addCategory")}</DialogTitle>
-            </DialogHeader>
-            <div className="py-4">
-              <Input
-                ref={addInputRef}
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder={t("menuList.enterCategoryName")}
-                className="h-12"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && newCategoryName.trim())
-                    handleAddCategory();
-                }}
-              />
-            </div>
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setAddDialogOpen(false);
-                  setNewCategoryName("");
-                }}
-              >
-                {t("menuList.cancel")}
-              </Button>
-              <Button
-                onClick={handleAddCategory}
-                disabled={!newCategoryName.trim()}
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                {t("menuList.ok")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <AddCategoryDialog
+          open={addDialogOpen}
+          onOpenChange={setAddDialogOpen}
+          name={newCategoryName}
+          onNameChange={setNewCategoryName}
+          onConfirm={handleAddCategory}
+          inputRef={addInputRef}
+        />
 
         <CategorySortDialog
           open={sortDialogOpen}
